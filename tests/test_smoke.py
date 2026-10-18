@@ -12,6 +12,7 @@ PACKAGES = [
     "incidents",
     "ingestion",
     "investigation",
+    "profiling",
     "quality",
     "silver",
 ]
