@@ -1,5 +1,7 @@
 # DataGuard AI: Intelligent Data Quality Monitoring
 
+[![CI](https://github.com/OmPatil2806/DataGuard-AI-Intelligent-Data-Quality-Monitoring/actions/workflows/ci.yml/badge.svg)](https://github.com/OmPatil2806/DataGuard-AI-Intelligent-Data-Quality-Monitoring/actions/workflows/ci.yml)
+
 DataGuard AI finds bad data that pipelines let through, explains what broke and since when,
 and recommends what to do about it. Raw files land in **Bronze**, a rule engine sends valid rows
 to **Silver** and invalid rows to **Quarantine** with a reason, dataset-level checks (schema,
@@ -31,3 +33,5 @@ notebooks/    profiling, rule experiments, baselines, calibration, evaluation
 src/          pipeline code, one package per stage
 tests/        pytest suite
 ```
+
+The full Version 1 plan is in [docs/project_plan.md](docs/project_plan.md).
