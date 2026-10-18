@@ -1,0 +1,23 @@
+# Severity levels and check-category weights.
+# Draft values; calibrated in Phase 4 (notebook 04).
+
+severity_levels:
+  critical: 4
+  high: 3
+  medium: 2
+  low: 1
+
+# Weight of each check category in the quality score:
+#   score = 100 * sum(w_i * pass_rate_i) / sum(w_i)
+category_weights:
+  schema: 5
+  completeness: 3
+  uniqueness: 2
+  validity: 3
+  pattern: 2
+  referential: 2
+  consistency: 2
+  freshness: 3
+  volume: 4
+  drift: 3
+  ml_anomaly: 1

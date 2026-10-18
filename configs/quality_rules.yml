@@ -1,0 +1,20 @@
+# Quality rules and dataset-level check settings.
+# Row-level rules per dataset are added in Phase 2; dataset-level checks are tuned in Phase 3.
+
+version: 1
+
+defaults:
+  baseline:
+    min_runs: 3              # earlier runs needed before a baseline is trusted
+  volume:
+    tolerance: 0.30          # allowed deviation of rows per day from the rolling median
+  drift:
+    psi_medium: 0.10
+    psi_high: 0.20
+  incidents:
+    resolve_after_clean_runs: 2
+
+# Row-level rules per dataset (Phase 2). Each rule will have:
+#   name, category, column(s), check, action (quarantine | warn), severity
+rules:
+  yellow_taxi: []

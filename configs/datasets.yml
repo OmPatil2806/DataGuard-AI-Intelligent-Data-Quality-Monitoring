@@ -1,0 +1,36 @@
+# Datasets monitored by DataGuard AI and where their files live.
+# Paths are relative to the repository root.
+
+paths:
+  data_dir: data
+  incoming: data/incoming
+  sample: data/sample
+  bronze: data/bronze
+  silver: data/silver
+  quarantine: data/quarantine
+  duckdb: data/dataguard.duckdb
+
+datasets:
+  yellow_taxi:
+    description: NYC TLC Yellow Taxi trip records (monthly Parquet files)
+    enabled: true
+    format: parquet
+    frequency: monthly
+    url_template: https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_{period}.parquet
+    file_template: yellow_tripdata_{period}.parquet
+    timestamp_column: tpep_pickup_datetime
+    periods:
+      start: "2023-01"
+      end: "2023-12"
+      # Older month for a real schema difference; confirmed during profiling (Step 0.7).
+      extra: ["2019-01"]
+    lookups:
+      taxi_zone:
+        url: https://d37ci6vzurychx.cloudfront.net/misc/taxi_zone_lookup.csv
+        file: taxi_zone_lookup.csv
+
+  ved_signals:
+    description: Vehicle Energy Dataset, OBD-II signals from 383 cars (added in Phase 9)
+    enabled: false
+    format: csv
+    frequency: weekly
