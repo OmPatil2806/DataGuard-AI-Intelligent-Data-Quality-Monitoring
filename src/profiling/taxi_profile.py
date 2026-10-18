@@ -27,6 +27,9 @@ AMOUNT_PARTS = [
     "congestion_surcharge",
     "airport_fee",
 ]
+# VendorID 1 also books the congestion surcharge and airport fee inside `extra`,
+# so its totals match the sum without those two columns (found in Step 0.7).
+SURCHARGES_ALSO_IN_EXTRA = ["congestion_surcharge", "airport_fee"]
 NULL_GROUP = [
     "passenger_count",
     "RatecodeID",
@@ -97,8 +100,8 @@ CHECKS = [
     Check(
         "total_mismatch",
         "consistency",
-        "abs(total_amount - ({parts})) > 0.01",
-        "total_amount differs from the sum of its parts",
+        "abs(total_amount - ({parts})) > 0.01 AND abs(total_amount - ({base})) > 0.01",
+        "total_amount matches neither the sum of its parts nor the sum without surcharges",
     ),
 ]
 
@@ -134,6 +137,12 @@ def _resolve(columns: dict[str, str], name: str) -> str | None:
 
 def _quote(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
+
+
+def _amount_sum(columns: dict[str, str], names: list[str]) -> str:
+    """SQL sum of the amount columns present in a file, NULLs counted as 0."""
+    present = [c for c in (_resolve(columns, n) for n in names) if c]
+    return " + ".join(f"coalesce({_quote(c)}, 0)" for c in present)
 
 
 def rows_per_file(con: duckdb.DuckDBPyConnection, files: list[Path]) -> pd.DataFrame:
@@ -222,9 +231,9 @@ def issue_counts(
     records = []
     for path in files:
         cols = columns_of(con, path)
-        parts = " + ".join(
-            f"coalesce({_quote(c)}, 0)" for c in (_resolve(cols, p) for p in AMOUNT_PARTS) if c
-        )
+
+        parts = _amount_sum(cols, AMOUNT_PARTS)
+        base = _amount_sum(cols, [p for p in AMOUNT_PARTS if p not in SURCHARGES_ALSO_IN_EXTRA])
         period = period_of(path)
         selects, active = [], []
         for check in CHECKS:
@@ -234,7 +243,7 @@ def issue_counts(
                 start = f"TIMESTAMP '{period}-01'"
                 condition = check.condition.format(start=start, end=f"({start} + INTERVAL 1 MONTH)")
             elif check.name == "total_mismatch":
-                condition = check.condition.format(parts=parts)
+                condition = check.condition.format(parts=parts, base=base)
             else:
                 condition = check.condition
             selects.append(f"count_if({condition})")

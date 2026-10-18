@@ -108,3 +108,33 @@ def test_summary(con, files):
     assert summary.loc["zero_passengers", "total_rows"] == 6
     assert summary.loc["zero_passengers", "files_affected"] == 2
     assert summary.loc["many_passengers", "files_affected"] == 0
+
+
+def test_total_mismatch_accepts_surcharges_booked_in_extra(con, tmp_path):
+    """VendorID 1 puts congestion and airport fees in `extra` too; that is not a mismatch."""
+    path = tmp_path / "yellow_tripdata_2023-07.parquet"
+    duckdb.sql(
+        f"""
+        COPY (
+            SELECT * FROM (VALUES
+                -- standard: total = sum of all parts
+                (2, 10.0, 1.0, 0.5, 2.0, 0.0, 1.0, 2.5, 0.0, 17.0),
+                -- vendor 1: extra already holds the 2.50 congestion surcharge
+                (1, 10.0, 2.5, 0.5, 2.0, 0.0, 1.0, 2.5, 0.0, 16.0),
+                -- matches neither formula
+                (2, 10.0, 1.0, 0.5, 2.0, 0.0, 1.0, 2.5, 0.0, 30.0)
+            ) t(VendorID, fare_amount, extra, mta_tax, tip_amount, tolls_amount,
+                improvement_surcharge, congestion_surcharge, Airport_fee, total_amount)
+        ) TO '{path}' (FORMAT parquet)
+        """
+    )
+    zones = tmp_path / "zones.csv"
+    zones.write_text("LocationID\n1\n")
+    # Only the total check is relevant here; the other checks need columns this file lacks.
+    original = tp.CHECKS
+    tp.CHECKS = [c for c in original if c.name == "total_mismatch"]
+    try:
+        issues = tp.issue_counts(con, [path], zones)
+    finally:
+        tp.CHECKS = original
+    assert issues.set_index("check").loc["total_mismatch", "rows"] == 1
