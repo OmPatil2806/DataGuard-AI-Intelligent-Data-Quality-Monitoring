@@ -23,6 +23,15 @@ pytest
 ruff check .
 ```
 
+## Download the data
+
+```bash
+python src/data_download/download_data.py                    # every month in configs/datasets.yml
+python src/data_download/download_data.py --months 2023-01   # a single month
+```
+
+Files land in `data/incoming/` (ignored by Git). Existing valid files are skipped.
+
 ## Repository layout
 
 ```
