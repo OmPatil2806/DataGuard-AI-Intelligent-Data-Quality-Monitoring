@@ -9,6 +9,18 @@ quality is measured instead of assumed.
 
 **Status:** Phase 0 — setup and data profiling (in progress)
 
+## Setup
+
+Requires Python 3.11 or newer.
+
+```bash
+python -m venv .venv
+source .venv/bin/activate          # Windows PowerShell: .\.venv\Scripts\Activate.ps1
+pip install -r requirements-dev.txt
+pytest
+ruff check .
+```
+
 ## Repository layout
 
 ```

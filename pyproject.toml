@@ -1,0 +1,18 @@
+[project]
+name = "dataguard-ai"
+version = "0.1.0"
+description = "Data quality monitoring on a medallion architecture with quarantine and incident investigation"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["notebooks"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]

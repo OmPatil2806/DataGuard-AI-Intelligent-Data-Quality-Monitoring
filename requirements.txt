@@ -1,0 +1,21 @@
+# Runtime dependencies (Python 3.11+)
+
+# Storage and processing
+duckdb>=1.1,<2
+pandas>=2.2,<3
+pyarrow>=17
+
+# Validation and statistics
+pandera>=0.20,<1
+scipy>=1.13,<2
+
+# Configuration and downloads
+pyyaml>=6.0,<7
+requests>=2.32,<3
+
+# Dashboard
+streamlit>=1.38,<2
+plotly>=5.24
+
+# Notebooks
+jupyter>=1.1
