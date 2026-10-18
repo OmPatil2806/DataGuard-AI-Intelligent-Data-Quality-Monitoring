@@ -9,7 +9,7 @@ freshness, volume, drift) raise incidents, and **Gold** monitoring tables feed a
 Version 1 runs on real NYC TLC Yellow Taxi data with deliberately injected faults, so detection
 quality is measured instead of assumed.
 
-**Status:** Phase 0 — setup and data profiling (in progress)
+**Status:** Phase 0 complete (setup and data profiling). Next: Phase 1, Bronze ingestion.
 
 ## Setup
 
@@ -41,6 +41,13 @@ python src/data_download/make_sample.py --fraction 0.05    # 5% instead
 
 Tests never download data: they use the synthetic fixtures in `tests/fixtures/`
 (regenerate with `python tests/fixtures/make_fixtures.py`).
+
+## Profile the data
+
+Open `notebooks/01_data_profiling.ipynb` with the `.venv` kernel and run all cells. It reads
+`data/incoming/` and measures volume, schema differences, NULLs, row-level problems, duplicates and
+distributions per file. The findings on the full 2019-01 and 2023 data are in
+[docs/data_profile.md](docs/data_profile.md).
 
 ## Repository layout
 
