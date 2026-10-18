@@ -32,6 +32,16 @@ python src/data_download/download_data.py --months 2023-01   # a single month
 
 Files land in `data/incoming/` (ignored by Git). Existing valid files are skipped.
 
+For fast development, make a reproducible 10% sample in `data/sample/`:
+
+```bash
+python src/data_download/make_sample.py                    # every downloaded month
+python src/data_download/make_sample.py --fraction 0.05    # 5% instead
+```
+
+Tests never download data: they use the synthetic fixtures in `tests/fixtures/`
+(regenerate with `python tests/fixtures/make_fixtures.py`).
+
 ## Repository layout
 
 ```

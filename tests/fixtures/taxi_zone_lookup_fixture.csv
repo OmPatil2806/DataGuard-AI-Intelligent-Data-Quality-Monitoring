@@ -1,0 +1,12 @@
+LocationID,Borough,Zone,service_zone
+1,EWR,Newark Airport,EWR
+43,Manhattan,Central Park,Yellow Zone
+48,Manhattan,Clinton East,Yellow Zone
+68,Manhattan,East Chelsea,Boro Zone
+132,Queens,JFK Airport,Airports
+138,Queens,LaGuardia Airport,Airports
+161,Manhattan,Midtown Center,Yellow Zone
+236,Manhattan,Upper East Side North,Yellow Zone
+237,Manhattan,Upper East Side South,Yellow Zone
+264,Unknown,N/A,N/A
+265,N/A,Outside of NYC,N/A

@@ -1,0 +1,47 @@
+{
+  "zero_passengers": [
+    16,
+    23,
+    150
+  ],
+  "null_group": [
+    81,
+    91,
+    122,
+    138
+  ],
+  "negative_fare": [
+    41,
+    149,
+    160
+  ],
+  "zero_distance": [
+    35,
+    118,
+    175
+  ],
+  "dropoff_before_pickup": [
+    30,
+    158
+  ],
+  "pickup_outside_month": [
+    124,
+    141
+  ],
+  "unknown_location_id": [
+    157,
+    174
+  ],
+  "unknown_zone_264_265": [
+    144,
+    147
+  ],
+  "total_mismatch": [
+    102,
+    109
+  ],
+  "duplicate_row": [
+    19,
+    34
+  ]
+}
