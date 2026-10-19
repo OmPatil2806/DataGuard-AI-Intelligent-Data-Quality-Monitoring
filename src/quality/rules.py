@@ -46,6 +46,7 @@ CHECKS: dict[str, tuple[set[str], set[str]]] = {
     "not_null": ({"columns"}, {"mode"}),
     "range": ({"column"}, {"min", "max", "exclusive_min", "exclusive_max"}),
     "allowed_values": ({"column", "values"}, set()),
+    "forbidden_values": ({"column", "values"}, set()),
     "compare": ({"left", "op", "right"}, set()),
     "duration": ({"start", "end"}, {"min_seconds", "max_seconds"}),
     "within_period": ({"column"}, set()),
@@ -131,7 +132,7 @@ def _validate(rule: Rule, dataset: Dataset) -> None:
             fail("'min' is greater than 'max'")
         if types[p["column"]] not in NUMERIC_TYPES:
             fail(f"range needs a numeric column, '{p['column']}' is {types[p['column']]}")
-    elif check == "allowed_values":
+    elif check in ("allowed_values", "forbidden_values"):
         if not isinstance(p["values"], list) or not p["values"]:
             fail("'values' must be a non-empty list")
     elif check == "compare":

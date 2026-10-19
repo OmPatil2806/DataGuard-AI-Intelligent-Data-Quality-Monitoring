@@ -100,6 +100,9 @@ def failure_sql(rule: Rule, period: str | None = None) -> str:
     elif check == "allowed_values":
         values = ", ".join(_literal(v) for v in p["values"])
         expr = f"{_q(p['column'])} NOT IN ({values})"
+    elif check == "forbidden_values":
+        values = ", ".join(_literal(v) for v in p["values"])
+        expr = f"{_q(p['column'])} IN ({values})"
     elif check == "compare":
         op = "<>" if p["op"] == "!=" else p["op"]
         expr = f"NOT ({_q(p['left'])} {op} {_q(p['right'])})"

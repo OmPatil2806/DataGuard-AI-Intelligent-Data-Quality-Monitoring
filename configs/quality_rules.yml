@@ -29,7 +29,8 @@ defaults:
 # check except not_null, so missing values are reported once, by completeness rules):
 #   not_null        columns: [..], mode: any | all   any: fail if any is NULL; all: if all are
 #   range           column, min and/or max, exclusive_min / exclusive_max (default false)
-#   allowed_values  column, values: [..]
+#   allowed_values  column, values: [..]   the value must be one of these
+#   forbidden_values column, values: [..]  the value must not be one of these
 #   compare         left, op (< <= > >= = !=), right (both columns)
 #   duration        start, end (timestamps), min_seconds and/or max_seconds
 #   within_period   column (timestamp): must fall inside the file's month
@@ -47,4 +48,202 @@ defaults:
 #     severity: high
 #     reason: "fare_amount {fare_amount} below 0 (refund or dispute)"
 rules:
-  yellow_taxi: []    # the taxi rules are added in Step 2.5
+  # NYC Yellow Taxi. Actions and thresholds come from docs/data_profile.md (Phase 0); the
+  # percentages in comments are the worst month measured there.
+  yellow_taxi:
+    # --- completeness --------------------------------------------------------------------
+    - id: trip_metadata_missing        # 0.37% - 5.33% of rows, always all five together
+      category: completeness
+      check: not_null
+      columns: [passenger_count, RatecodeID, store_and_fwd_flag, congestion_surcharge, airport_fee]
+      mode: all
+      action: warn
+      severity: low
+      reason: "trip metadata missing (passenger_count, RatecodeID, store_and_fwd_flag, surcharges)"
+
+    - id: trip_times_present
+      category: completeness
+      check: not_null
+      columns: [tpep_pickup_datetime, tpep_dropoff_datetime]
+      action: quarantine
+      severity: high
+      reason: "pickup or dropoff time missing"
+
+    # --- validity ------------------------------------------------------------------------
+    - id: fare_not_negative            # 1.26%: refunds and disputes
+      category: validity
+      check: range
+      column: fare_amount
+      min: 0
+      action: quarantine
+      severity: high
+      reason: "fare_amount {fare_amount} below 0 (refund or dispute, payment_type {payment_type})"
+
+    - id: total_not_negative           # 1.18%
+      category: validity
+      check: range
+      column: total_amount
+      min: 0
+      action: quarantine
+      severity: high
+      reason: "total_amount {total_amount} below 0"
+
+    - id: fare_not_zero                # 0.04%
+      category: validity
+      check: forbidden_values
+      column: fare_amount
+      values: [0]
+      action: warn
+      severity: low
+      reason: "fare_amount is 0"
+
+    - id: distance_not_negative
+      category: validity
+      check: range
+      column: trip_distance
+      min: 0
+      action: quarantine
+      severity: high
+      reason: "trip_distance {trip_distance} below 0"
+
+    - id: distance_not_zero            # 3.46%: cancelled or flat-rate trips
+      category: validity
+      check: forbidden_values
+      column: trip_distance
+      values: [0]
+      action: warn
+      severity: low
+      reason: "trip_distance is 0"
+
+    - id: distance_max_100_miles       # 0.005%; real maximum 345,729 miles
+      category: validity
+      check: range
+      column: trip_distance
+      max: 100
+      action: quarantine
+      severity: medium
+      reason: "trip_distance {trip_distance} above 100 miles"
+
+    - id: passengers_not_zero          # 1.73%: driver-entered field
+      category: validity
+      check: forbidden_values
+      column: passenger_count
+      values: [0]
+      action: warn
+      severity: low
+      reason: "passenger_count is 0"
+
+    - id: passengers_max_6             # 0.002%
+      category: validity
+      check: range
+      column: passenger_count
+      max: 6
+      action: quarantine
+      severity: medium
+      reason: "passenger_count {passenger_count} above 6"
+
+    # --- pattern and timestamp -----------------------------------------------------------
+    - id: pickup_in_file_month         # 0.007%
+      category: pattern
+      check: within_period
+      column: tpep_pickup_datetime
+      action: quarantine
+      severity: high
+      reason: "pickup {tpep_pickup_datetime} outside the file's month"
+
+    # --- consistency ---------------------------------------------------------------------
+    - id: dropoff_not_before_pickup    # 0.027%
+      category: consistency
+      check: compare
+      left: tpep_dropoff_datetime
+      op: ">="
+      right: tpep_pickup_datetime
+      action: quarantine
+      severity: high
+      reason: "dropoff {tpep_dropoff_datetime} earlier than pickup {tpep_pickup_datetime}"
+
+    - id: trip_has_duration            # 0.085%
+      category: consistency
+      check: compare
+      left: tpep_dropoff_datetime
+      op: "!="
+      right: tpep_pickup_datetime
+      action: warn
+      severity: low
+      reason: "dropoff equals pickup ({tpep_pickup_datetime})"
+
+    - id: trip_under_24_hours          # 0.001%
+      category: consistency
+      check: duration
+      start: tpep_pickup_datetime
+      end: tpep_dropoff_datetime
+      max_seconds: 86400
+      action: quarantine
+      severity: medium
+      reason: "trip longer than 24 hours ({tpep_pickup_datetime} to {tpep_dropoff_datetime})"
+
+    # PENDING open item O1 (docs/data_profile.md): disabled until diagnose_totals.py has been
+    # run on the full data. Current definition: total equals all parts, or (VendorID 1 finding)
+    # all parts except congestion_surcharge and airport_fee, which that vendor books in extra.
+    - id: total_matches_parts
+      enabled: false
+      category: consistency
+      check: sum_equals
+      total: total_amount
+      parts: [fare_amount, extra, mta_tax, tip_amount, tolls_amount, improvement_surcharge,
+              congestion_surcharge, airport_fee]
+      alternatives:
+        - [fare_amount, extra, mta_tax, tip_amount, tolls_amount, improvement_surcharge]
+      tolerance: 0.01
+      action: quarantine
+      severity: medium
+      reason: "total_amount {total_amount} does not match the sum of its parts"
+
+    # --- referential ---------------------------------------------------------------------
+    - id: pickup_zone_known            # 0 rows in real data; tested by fault injection
+      category: referential
+      check: foreign_key
+      column: PULocationID
+      lookup: taxi_zone
+      lookup_column: LocationID
+      action: quarantine
+      severity: high
+      reason: "PULocationID {PULocationID} not in zone lookup"
+
+    - id: dropoff_zone_known
+      category: referential
+      check: foreign_key
+      column: DOLocationID
+      lookup: taxi_zone
+      lookup_column: LocationID
+      action: quarantine
+      severity: high
+      reason: "DOLocationID {DOLocationID} not in zone lookup"
+
+    - id: pickup_zone_not_unknown      # zones 264/265 together: 2.44%
+      category: referential
+      check: forbidden_values
+      column: PULocationID
+      values: [264, 265]
+      action: warn
+      severity: low
+      reason: "PULocationID {PULocationID} is Unknown / Outside of NYC"
+
+    - id: dropoff_zone_not_unknown
+      category: referential
+      check: forbidden_values
+      column: DOLocationID
+      values: [264, 265]
+      action: warn
+      severity: low
+      reason: "DOLocationID {DOLocationID} is Unknown / Outside of NYC"
+
+    # --- uniqueness ----------------------------------------------------------------------
+    - id: trip_unique                  # at most 3 per file; tested by fault injection
+      category: uniqueness
+      check: unique
+      columns: [VendorID, tpep_pickup_datetime, tpep_dropoff_datetime, PULocationID,
+                DOLocationID, fare_amount, total_amount]
+      action: quarantine
+      severity: medium
+      reason: "duplicate of an earlier trip (same vendor, times, zones, fare and total)"
