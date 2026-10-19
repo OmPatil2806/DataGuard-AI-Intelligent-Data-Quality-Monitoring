@@ -51,6 +51,7 @@ class Dataset:
     file_template: str | None = None
     timestamp_column: str | None = None
     expected_lag_days: int | None = None
+    columns: tuple[tuple[str, str], ...] = ()  # standard schema: (name, DuckDB type)
     periods: tuple[str, ...] = ()
     lookups: tuple[Lookup, ...] = ()
 
@@ -135,6 +136,29 @@ def _parse_lag(value: Any, where: str) -> int | None:
     return value
 
 
+COLUMN_TYPES = ("BOOLEAN", "INTEGER", "BIGINT", "DOUBLE", "VARCHAR", "DATE", "TIMESTAMP")
+
+
+def _parse_columns(raw: Any, where: str) -> tuple[tuple[str, str], ...]:
+    if raw is None:
+        return ()
+    if not isinstance(raw, dict) or not raw:
+        raise ConfigError(f"{where} must map column names to types")
+    columns = []
+    seen: set[str] = set()
+    for name, dtype in raw.items():
+        dtype = str(dtype).upper()
+        if dtype not in COLUMN_TYPES:
+            raise ConfigError(
+                f"{where}.{name}: unknown type '{dtype}' (use {', '.join(COLUMN_TYPES)})"
+            )
+        if name.lower() in seen:
+            raise ConfigError(f"{where}: column '{name}' is listed twice (names ignore case)")
+        seen.add(name.lower())
+        columns.append((str(name), dtype))
+    return tuple(columns)
+
+
 def _parse_dataset(name: str, raw: dict[str, Any]) -> Dataset:
     where = f"datasets.{name}"
     lookups = tuple(
@@ -157,6 +181,7 @@ def _parse_dataset(name: str, raw: dict[str, Any]) -> Dataset:
         expected_lag_days=_parse_lag(raw.get("expected_lag_days"), where),
         periods=_parse_periods(raw.get("periods"), f"{where}.periods"),
         lookups=lookups,
+        columns=_parse_columns(raw.get("columns"), f"{where}.columns"),
     )
     if dataset.enabled:
         for key in ("url_template", "file_template", "timestamp_column"):
