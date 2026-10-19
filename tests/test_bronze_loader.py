@@ -150,3 +150,11 @@ def test_row_count_mismatch_leaves_nothing_behind(con, taxi, jan, bronze):
 def test_current_files_ignores_unloaded_versions(con, taxi, jan, bronze):
     register(con, taxi, jan)
     assert bronze_loader.current_files(con, "yellow_taxi") == {}
+
+
+def test_read_bronze_sql_has_no_partition_columns(con, taxi, jan, bronze):
+    path = bronze_loader.load_file(con, register(con, taxi, jan), jan, bronze, "run_0001").path
+    plain = duckdb.sql(f"SELECT * FROM {bronze_loader.read_bronze_sql(path)}").columns
+    auto = duckdb.sql(f"SELECT * FROM read_parquet('{path}')").columns
+    assert "period" not in plain and "version" not in plain
+    assert {"period", "version"} <= set(auto)  # DuckDB adds them from the folder names

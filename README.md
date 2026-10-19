@@ -9,7 +9,7 @@ freshness, volume, drift) raise incidents, and **Gold** monitoring tables feed a
 Version 1 runs on real NYC TLC Yellow Taxi data with deliberately injected faults, so detection
 quality is measured instead of assumed.
 
-**Status:** Phase 0 complete (setup and data profiling). Next: Phase 1, Bronze ingestion.
+**Status:** Phase 1 complete (Bronze ingestion). Next: Phase 2, row-level rules.
 
 ## Setup
 
@@ -47,12 +47,14 @@ Tests never download data: they use the synthetic fixtures in `tests/fixtures/`
 ```bash
 python src/ingestion/ingest_data.py                        # every downloaded month
 python src/ingestion/ingest_data.py --months 2023-01       # one month
+python src/ingestion/verify_bronze.py                      # check Bronze against the source
 python src/common/db.py                                    # control tables and latest runs
 ```
 
 Each file is registered in `file_manifest` (with its SHA-256), written unchanged to
 `data/bronze/yellow_taxi/period=YYYY-MM/version=<sha>/` with lineage columns, and counted in
 `pipeline_runs`. Running the same command again skips files that are already in Bronze.
+Details: [docs/bronze_layout.md](docs/bronze_layout.md).
 
 ## Profile the data
 

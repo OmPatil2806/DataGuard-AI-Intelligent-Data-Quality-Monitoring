@@ -13,6 +13,10 @@ Every source column keeps its name, type, values and row order. Four columns are
 
 (source_file, bronze_row_id) identifies a row; the manifest maps source_file and
 version to the SHA-256 of the exact content that was loaded.
+
+DuckDB treats `name=value` folders as Hive partitions and adds `period` and `version`
+columns when it reads Bronze files. Use read_bronze_sql() to read a file exactly as
+stored, or hive_partitioning = true on a glob to get those columns on purpose.
 """
 
 from __future__ import annotations
@@ -47,6 +51,11 @@ class BronzeResult:
 
 def _sql_path(path: Path) -> str:
     return "'" + str(path).replace("\\", "/").replace("'", "''") + "'"
+
+
+def read_bronze_sql(path: Path) -> str:
+    """SQL that reads one Parquet file exactly as stored, without Hive partition columns."""
+    return f"read_parquet({_sql_path(path)}, hive_partitioning = false)"
 
 
 def version_dir(bronze_root: Path, entry: ManifestEntry) -> Path:
@@ -85,14 +94,12 @@ def load_file(
     target_dir = version_dir(bronze_root, entry)
     target = target_dir / PART_FILE
     if target.exists() and not force:
-        rows = con.execute(f"SELECT count(*) FROM read_parquet({_sql_path(target)})").fetchone()[0]
+        rows = con.execute(f"SELECT count(*) FROM {read_bronze_sql(target)}").fetchone()[0]
         return BronzeResult(target, rows, "skipped")
 
     columns = [
         name
-        for name, *_ in con.execute(
-            f"DESCRIBE SELECT * FROM read_parquet({_sql_path(source)})"
-        ).fetchall()
+        for name, *_ in con.execute(f"DESCRIBE SELECT * FROM {read_bronze_sql(source)}").fetchall()
     ]
     clash = sorted({c.lower() for c in columns} & set(LINEAGE_COLUMNS))
     if clash:
@@ -112,13 +119,14 @@ def load_file(
                        ?::VARCHAR                    AS source_file,
                        ?::TIMESTAMP                  AS ingestion_timestamp,
                        ?::VARCHAR                    AS pipeline_run_id
-                FROM read_parquet({_sql_path(source)}, file_row_number = true)
+                FROM read_parquet({_sql_path(source)}, file_row_number = true,
+                                  hive_partitioning = false)
                 ORDER BY file_row_number
             ) TO {_sql_path(tmp)} (FORMAT parquet, COMPRESSION zstd)
             """,
             [source.name, loaded_at, run_id],
         )
-        rows = con.execute(f"SELECT count(*) FROM read_parquet({_sql_path(tmp)})").fetchone()[0]
+        rows = con.execute(f"SELECT count(*) FROM {read_bronze_sql(tmp)}").fetchone()[0]
         if entry.row_count is not None and rows != entry.row_count:
             raise BronzeError(
                 f"{source.name}: wrote {rows} rows but the source has {entry.row_count}"
