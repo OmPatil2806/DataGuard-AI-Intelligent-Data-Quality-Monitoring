@@ -42,6 +42,18 @@ python src/data_download/make_sample.py --fraction 0.05    # 5% instead
 Tests never download data: they use the synthetic fixtures in `tests/fixtures/`
 (regenerate with `python tests/fixtures/make_fixtures.py`).
 
+## Load the data into Bronze
+
+```bash
+python src/ingestion/ingest_data.py                        # every downloaded month
+python src/ingestion/ingest_data.py --months 2023-01       # one month
+python src/common/db.py                                    # control tables and latest runs
+```
+
+Each file is registered in `file_manifest` (with its SHA-256), written unchanged to
+`data/bronze/yellow_taxi/period=YYYY-MM/version=<sha>/` with lineage columns, and counted in
+`pipeline_runs`. Running the same command again skips files that are already in Bronze.
+
 ## Profile the data
 
 Open `notebooks/01_data_profiling.ipynb` with the `.venv` kernel and run all cells. It reads
