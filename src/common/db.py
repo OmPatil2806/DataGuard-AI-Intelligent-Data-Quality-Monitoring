@@ -3,7 +3,7 @@
 Control tables record what the pipeline did, so every Bronze, Silver and Quarantine
 row can be traced back to a run and a source file.
 
-    python src/common/db.py          # create the database and tables, then list them
+    python src/common/db.py          # create the database and tables, list them and recent runs
 """
 
 from __future__ import annotations
@@ -121,6 +121,13 @@ def main() -> int:
         for table in list_tables(con):
             count = con.execute(f'SELECT count(*) FROM "{table}"').fetchone()[0]
             print(f"  {table:<16} {count} row(s)")
+        runs = con.execute(
+            "SELECT run_id, dataset, status, started_at, rows_loaded, error_message "
+            "FROM pipeline_runs ORDER BY started_at DESC, run_id DESC LIMIT 5"
+        ).df()
+        if not runs.empty:
+            print("\nlatest runs (UTC):")
+            print(runs.to_string(index=False))
     return 0
 
 
