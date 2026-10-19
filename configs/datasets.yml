@@ -19,6 +19,9 @@ datasets:
     url_template: https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_{period}.parquet
     file_template: yellow_tripdata_{period}.parquet
     timestamp_column: tpep_pickup_datetime
+    # A month's file is expected this many days after the month ends (freshness check).
+    # TLC publishes with a delay of roughly two months; calibrated in Phase 3.
+    expected_lag_days: 60
     periods:
       start: "2023-01"
       end: "2023-12"

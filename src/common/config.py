@@ -50,6 +50,7 @@ class Dataset:
     url_template: str | None = None
     file_template: str | None = None
     timestamp_column: str | None = None
+    expected_lag_days: int | None = None
     periods: tuple[str, ...] = ()
     lookups: tuple[Lookup, ...] = ()
 
@@ -126,6 +127,14 @@ def _parse_periods(raw: dict[str, Any] | None, where: str) -> tuple[str, ...]:
     return tuple(sorted(periods))
 
 
+def _parse_lag(value: Any, where: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ConfigError(f"{where}.expected_lag_days must be a whole number of days >= 0")
+    return value
+
+
 def _parse_dataset(name: str, raw: dict[str, Any]) -> Dataset:
     where = f"datasets.{name}"
     lookups = tuple(
@@ -145,6 +154,7 @@ def _parse_dataset(name: str, raw: dict[str, Any]) -> Dataset:
         url_template=raw.get("url_template"),
         file_template=raw.get("file_template"),
         timestamp_column=raw.get("timestamp_column"),
+        expected_lag_days=_parse_lag(raw.get("expected_lag_days"), where),
         periods=_parse_periods(raw.get("periods"), f"{where}.periods"),
         lookups=lookups,
     )

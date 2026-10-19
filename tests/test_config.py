@@ -121,3 +121,19 @@ def test_severity_weights_reject_unknown_category_and_bad_weight(tmp_path):
         load_severity_weights(write(tmp_path, levels + "category_weights: {speed: 1}\n"))
     with pytest.raises(ConfigError, match="'schema' must be a positive number"):
         load_severity_weights(write(tmp_path, levels + "category_weights: {schema: 0}\n"))
+
+
+def test_expected_lag_days(tmp_path):
+    assert load_datasets_config().dataset("yellow_taxi").expected_lag_days == 60
+    assert (
+        load_datasets_config(write(tmp_path, VALID_DATASETS))
+        .dataset("yellow_taxi")
+        .expected_lag_days
+        is None
+    )
+    broken = VALID_DATASETS.replace(
+        "    timestamp_column: pickup\n",
+        "    timestamp_column: pickup\n    expected_lag_days: -5\n",
+    )
+    with pytest.raises(ConfigError, match="expected_lag_days must be a whole number"):
+        load_datasets_config(write(tmp_path, broken))
