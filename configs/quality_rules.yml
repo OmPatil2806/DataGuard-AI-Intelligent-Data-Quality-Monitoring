@@ -14,7 +14,37 @@ defaults:
   incidents:
     resolve_after_clean_runs: 2
 
-# Row-level rules per dataset (Phase 2). Each rule will have:
-#   name, category, column(s), check, action (quarantine | warn), severity
+# Row-level rules per dataset. Columns use the standard schema (configs/datasets.yml).
+# Every rule has:
+#   id         unique snake_case name, e.g. fare_not_negative
+#   category   completeness | uniqueness | validity | pattern | referential | consistency
+#   check      one of the check types below, with its parameters
+#   action     quarantine (row leaves Silver) | warn (row stays, flagged)
+#   severity   critical | high | medium | low
+#   reason     text stored with every failing row; {column} style placeholders allowed
+#   when       optional SQL condition: the rule only applies to rows where it is true
+#   enabled    optional, default true
+#
+# Check types (a row FAILS when the condition below is not met; NULL values pass every
+# check except not_null, so missing values are reported once, by completeness rules):
+#   not_null        columns: [..], mode: any | all   any: fail if any is NULL; all: if all are
+#   range           column, min and/or max, exclusive_min / exclusive_max (default false)
+#   allowed_values  column, values: [..]
+#   compare         left, op (< <= > >= = !=), right (both columns)
+#   duration        start, end (timestamps), min_seconds and/or max_seconds
+#   within_period   column (timestamp): must fall inside the file's month
+#   foreign_key     column, lookup (from datasets.yml lookups), lookup_column
+#   unique          columns: [..]; every row after the first with the same values fails
+#   sum_equals      total, parts: [..], tolerance; alternatives: [[..], ..] other accepted parts
+#
+# Example:
+#   - id: fare_not_negative
+#     category: validity
+#     check: range
+#     column: fare_amount
+#     min: 0
+#     action: quarantine
+#     severity: high
+#     reason: "fare_amount {fare_amount} below 0 (refund or dispute)"
 rules:
-  yellow_taxi: []
+  yellow_taxi: []    # the taxi rules are added in Step 2.5
