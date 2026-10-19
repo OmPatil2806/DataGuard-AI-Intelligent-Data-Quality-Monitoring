@@ -202,10 +202,14 @@ Every category has a real finding or is covered by a fault in Phase 6.
 
 ## Open items
 
-- **O1 — total mismatch (before Phase 2).** 10.2M rows, up to 27.9% in one file, fail
-  `|total_amount − sum(parts)| > 0.01`. Find which file and which difference values dominate
-  (for example a constant such as 1.25, 2.50 or 1.00 would point to a fee that `total_amount`
-  includes or excludes differently), then fix the definition before turning it into a rule.
+- **O1 — total mismatch (Step 2.1, in progress).** 10.2M rows, up to 27.9% in one file, fail
+  `|total_amount − sum(parts)| > 0.01`.
+  - Finding so far (commit `868f281`): VendorID 1 books `congestion_surcharge` and `airport_fee`
+    inside `extra` as well, so its totals match the sum *without* those two columns. The profiling
+    check now accepts either formula, for every vendor.
+  - Open: whether the second formula applies to VendorID 1 only, and how many rows still match
+    neither. `python src/profiling/diagnose_totals.py` measures both per vendor and lists the most
+    common differences; the rule is fixed in Step 2.5 from that output.
 - **O2 — NULL-rate threshold (Phase 3).** Absolute (+2 pp) or relative threshold; the September 2023
   jump is the calibration case.
 - **O3 — fare drift (Phase 3).** Calibrate PSI so the September fare step is Medium at most and a

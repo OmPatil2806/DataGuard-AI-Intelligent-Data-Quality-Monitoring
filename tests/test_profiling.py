@@ -110,7 +110,7 @@ def test_summary(con, files):
     assert summary.loc["many_passengers", "files_affected"] == 0
 
 
-def test_total_mismatch_accepts_surcharges_booked_in_extra(con, tmp_path):
+def test_total_mismatch_accepts_surcharges_booked_in_extra(con, tmp_path, monkeypatch):
     """VendorID 1 puts congestion and airport fees in `extra` too; that is not a mismatch."""
     path = tmp_path / "yellow_tripdata_2023-07.parquet"
     duckdb.sql(
@@ -131,10 +131,6 @@ def test_total_mismatch_accepts_surcharges_booked_in_extra(con, tmp_path):
     zones = tmp_path / "zones.csv"
     zones.write_text("LocationID\n1\n")
     # Only the total check is relevant here; the other checks need columns this file lacks.
-    original = tp.CHECKS
-    tp.CHECKS = [c for c in original if c.name == "total_mismatch"]
-    try:
-        issues = tp.issue_counts(con, [path], zones)
-    finally:
-        tp.CHECKS = original
+    monkeypatch.setattr(tp, "CHECKS", [c for c in tp.CHECKS if c.name == "total_mismatch"])
+    issues = tp.issue_counts(con, [path], zones)
     assert issues.set_index("check").loc["total_mismatch", "rows"] == 1

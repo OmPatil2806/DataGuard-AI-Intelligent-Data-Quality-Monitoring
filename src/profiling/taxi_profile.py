@@ -322,3 +322,59 @@ def summary(issues: pd.DataFrame) -> pd.DataFrame:
         files_affected=("rows", lambda s: int((s > 0).sum())),
     )
     return grouped.sort_values("total_rows", ascending=False).reset_index(drop=True)
+
+
+def total_diagnosis(
+    con: duckdb.DuckDBPyConnection, files: list[Path], top: int = 10
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Explain the total-vs-parts mismatch (open item O1).
+
+    Every row is put in one class:
+        full   total_amount equals the sum of all amount parts
+        base   it equals the sum without congestion_surcharge and airport_fee only
+        none   it equals neither
+
+    Returns (classes per file and VendorID, most common differences total - sum of all parts
+    among the rows that are not 'full', per file and VendorID).
+    """
+    classes, differences = [], []
+    for path in files:
+        cols = columns_of(con, path)
+        full = _amount_sum(cols, AMOUNT_PARTS)
+        base = _amount_sum(cols, [p for p in AMOUNT_PARTS if p not in SURCHARGES_ALSO_IN_EXTRA])
+        rows = f"""
+            SELECT VendorID AS vendor,
+                   CASE WHEN abs(total_amount - ({full})) <= 0.01 THEN 'full'
+                        WHEN abs(total_amount - ({base})) <= 0.01 THEN 'base'
+                        ELSE 'none' END AS class,
+                   round(total_amount - ({full}), 2) AS difference
+            FROM {_source(path)}
+        """
+        per_class = con.execute(
+            f"SELECT vendor, class, count(*) AS rows FROM ({rows}) GROUP BY ALL"
+        ).df()
+        per_class.insert(0, "file", path.name)
+        classes.append(per_class)
+        top_diffs = con.execute(
+            f"""
+            SELECT vendor, difference, count(*) AS rows FROM ({rows})
+            WHERE class <> 'full' GROUP BY vendor, difference
+            QUALIFY row_number() OVER (
+                PARTITION BY vendor ORDER BY count(*) DESC, difference
+            ) <= {int(top)}
+            """
+        ).df()
+        top_diffs.insert(0, "file", path.name)
+        differences.append(top_diffs)
+
+    table = pd.concat(classes, ignore_index=True)
+    table = table.pivot_table(
+        index=["file", "vendor"], columns="class", values="rows", fill_value=0, aggfunc="sum"
+    ).reindex(columns=["full", "base", "none"], fill_value=0)
+    table["rows"] = table.sum(axis=1)
+    for name in ("full", "base", "none"):
+        table[f"{name}_pct"] = (100 * table[name] / table["rows"]).round(2)
+    diffs = pd.concat(differences, ignore_index=True).sort_values(
+        ["file", "vendor", "rows"], ascending=[True, True, False]
+    )
+    return table.reset_index(), diffs.reset_index(drop=True)
