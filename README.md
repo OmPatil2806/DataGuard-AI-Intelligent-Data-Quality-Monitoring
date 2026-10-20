@@ -9,7 +9,8 @@ freshness, volume, drift) raise incidents, and **Gold** monitoring tables feed a
 Version 1 runs on real NYC TLC Yellow Taxi data with deliberately injected faults, so detection
 quality is measured instead of assumed.
 
-**Status:** Phase 1 complete (Bronze ingestion). Next: Phase 2, row-level rules.
+**Status:** Phase 2 complete (row-level rules), with two items pending a run on the full data:
+the total-amount rule (open item O1) and the measured rule results. Next: Phase 3, dataset-level checks.
 
 ## Setup
 
@@ -66,6 +67,8 @@ python src/quality/run_rules.py        # run the row rules on every month in Bro
 Rules live in `configs/quality_rules.yml`. Each row gets the list of rules it fails, with a
 reason; results per rule and month are stored in `rule_run_log` and `rule_run_summary`.
 `notebooks/02_rule_experiments.ipynb` shows the latest run in detail.
+Every rule is documented in [docs/rule_catalogue.md](docs/rule_catalogue.md), generated from the
+config with `python src/quality/rule_catalogue.py` (`--results` also writes `docs/rule_results.md`).
 
 ## Profile the data
 

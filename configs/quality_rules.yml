@@ -53,6 +53,7 @@ rules:
   yellow_taxi:
     # --- completeness --------------------------------------------------------------------
     - id: trip_metadata_missing        # 0.37% - 5.33% of rows, always all five together
+      description: "Rows where the meter sent no trip metadata. Fares and zones are present, so the trip is real; one warning instead of five per-column failures."
       category: completeness
       check: not_null
       columns: [passenger_count, RatecodeID, store_and_fwd_flag, congestion_surcharge, airport_fee]
@@ -62,6 +63,7 @@ rules:
       reason: "trip metadata missing (passenger_count, RatecodeID, store_and_fwd_flag, surcharges)"
 
     - id: trip_times_present
+      description: "Every later check and every Gold metric needs both timestamps."
       category: completeness
       check: not_null
       columns: [tpep_pickup_datetime, tpep_dropoff_datetime]
@@ -71,6 +73,7 @@ rules:
 
     # --- validity ------------------------------------------------------------------------
     - id: fare_not_negative            # 1.26%: refunds and disputes
+      description: "Negative fares are refunds and disputes: valid business records, but not trips."
       category: validity
       check: range
       column: fare_amount
@@ -80,6 +83,7 @@ rules:
       reason: "fare_amount {fare_amount} below 0 (refund or dispute, payment_type {payment_type})"
 
     - id: total_not_negative           # 1.18%
+      description: "Negative totals belong to the same refunds; checked separately in case the fare is positive."
       category: validity
       check: range
       column: total_amount
@@ -89,6 +93,7 @@ rules:
       reason: "total_amount {total_amount} below 0"
 
     - id: fare_not_zero                # 0.04%
+      description: "A zero fare with a trip is unusual but can be a no-charge trip (payment_type 3)."
       category: validity
       check: forbidden_values
       column: fare_amount
@@ -98,6 +103,7 @@ rules:
       reason: "fare_amount is 0"
 
     - id: distance_not_negative
+      description: "A negative distance is physically impossible."
       category: validity
       check: range
       column: trip_distance
@@ -107,6 +113,7 @@ rules:
       reason: "trip_distance {trip_distance} below 0"
 
     - id: distance_not_zero            # 3.46%: cancelled or flat-rate trips
+      description: "Often cancelled or flat-rate trips; kept in Silver but counted."
       category: validity
       check: forbidden_values
       column: trip_distance
@@ -116,6 +123,7 @@ rules:
       reason: "trip_distance is 0"
 
     - id: distance_max_100_miles       # 0.005%; real maximum 345,729 miles
+      description: "Extremes up to 345,729 miles exist; above 100 miles a city taxi trip is not plausible."
       category: validity
       check: range
       column: trip_distance
@@ -125,6 +133,7 @@ rules:
       reason: "trip_distance {trip_distance} above 100 miles"
 
     - id: passengers_not_zero          # 1.73%: driver-entered field
+      description: "Driver-entered field; zero usually means it was not filled in."
       category: validity
       check: forbidden_values
       column: passenger_count
@@ -134,6 +143,7 @@ rules:
       reason: "passenger_count is 0"
 
     - id: passengers_max_6             # 0.002%
+      description: "More than six passengers do not fit in a yellow taxi; the value is likely a typing error."
       category: validity
       check: range
       column: passenger_count
@@ -144,6 +154,7 @@ rules:
 
     # --- pattern and timestamp -----------------------------------------------------------
     - id: pickup_in_file_month         # 0.007%
+      description: "Each monthly file should hold that month's trips; others signal a wrong or mixed delivery."
       category: pattern
       check: within_period
       column: tpep_pickup_datetime
@@ -153,6 +164,7 @@ rules:
 
     # --- consistency ---------------------------------------------------------------------
     - id: dropoff_not_before_pickup    # 0.027%
+      description: "A trip cannot end before it starts."
       category: consistency
       check: compare
       left: tpep_dropoff_datetime
@@ -163,6 +175,7 @@ rules:
       reason: "dropoff {tpep_dropoff_datetime} earlier than pickup {tpep_pickup_datetime}"
 
     - id: trip_has_duration            # 0.085%
+      description: "Dropoff equal to pickup usually means a test or cancelled meter start."
       category: consistency
       check: compare
       left: tpep_dropoff_datetime
@@ -173,6 +186,7 @@ rules:
       reason: "dropoff equals pickup ({tpep_pickup_datetime})"
 
     - id: trip_under_24_hours          # 0.001%
+      description: "A taxi trip longer than a day is a meter or clock error."
       category: consistency
       check: duration
       start: tpep_pickup_datetime
@@ -186,6 +200,7 @@ rules:
     # run on the full data. Current definition: total equals all parts, or (VendorID 1 finding)
     # all parts except congestion_surcharge and airport_fee, which that vendor books in extra.
     - id: total_matches_parts
+      description: "The charged total should equal its components. Pending open item O1: the formula is being confirmed on the full data."
       enabled: false
       category: consistency
       check: sum_equals
@@ -201,6 +216,7 @@ rules:
 
     # --- referential ---------------------------------------------------------------------
     - id: pickup_zone_known            # 0 rows in real data; tested by fault injection
+      description: "Every pickup zone must exist in the zone lookup (referential integrity)."
       category: referential
       check: foreign_key
       column: PULocationID
@@ -211,6 +227,7 @@ rules:
       reason: "PULocationID {PULocationID} not in zone lookup"
 
     - id: dropoff_zone_known
+      description: "Every dropoff zone must exist in the zone lookup (referential integrity)."
       category: referential
       check: foreign_key
       column: DOLocationID
@@ -221,6 +238,7 @@ rules:
       reason: "DOLocationID {DOLocationID} not in zone lookup"
 
     - id: pickup_zone_not_unknown      # zones 264/265 together: 2.44%
+      description: "Zones 264/265 are valid IDs without a real location (Unknown / Outside of NYC)."
       category: referential
       check: forbidden_values
       column: PULocationID
@@ -230,6 +248,7 @@ rules:
       reason: "PULocationID {PULocationID} is Unknown / Outside of NYC"
 
     - id: dropoff_zone_not_unknown
+      description: "Zones 264/265 are valid IDs without a real location (Unknown / Outside of NYC)."
       category: referential
       check: forbidden_values
       column: DOLocationID
@@ -240,6 +259,7 @@ rules:
 
     # --- uniqueness ----------------------------------------------------------------------
     - id: trip_unique                  # at most 3 per file; tested by fault injection
+      description: "The same trip delivered twice would be counted twice in every metric."
       category: uniqueness
       check: unique
       columns: [VendorID, tpep_pickup_datetime, tpep_dropoff_datetime, PULocationID,
