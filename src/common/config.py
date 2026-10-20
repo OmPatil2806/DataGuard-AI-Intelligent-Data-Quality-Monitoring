@@ -217,6 +217,14 @@ def load_quality_rules(path: Path | None = None) -> dict[str, Any]:
     drift = defaults["drift"]
     if not 0 < drift["psi_medium"] < drift["psi_high"]:
         raise ConfigError(f"{path.name}: drift thresholds need 0 < psi_medium < psi_high")
+    for column, edges in (drift.get("bins") or {}).items():
+        where = f"{path.name}: defaults.drift.bins.{column}"
+        if not isinstance(edges, list) or len(edges) < 2:
+            raise ConfigError(f"{where} needs a list of at least two bin edges")
+        if any(not isinstance(e, int | float) or isinstance(e, bool) for e in edges):
+            raise ConfigError(f"{where} must contain only numbers")
+        if any(b <= a for a, b in zip(edges, edges[1:], strict=False)):
+            raise ConfigError(f"{where} must be strictly increasing")
     _require(data, "rules", path.name)
     return data
 

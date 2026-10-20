@@ -19,7 +19,7 @@ if __package__ in (None, ""):
 
 from common.config import load_datasets_config  # noqa: E402
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 RUN_STATUSES = ("RUNNING", "SUCCESS", "WARNING", "FAILED")
 FILE_STATUSES = ("REGISTERED", "LOADED", "SKIPPED", "FAILED")
@@ -103,6 +103,23 @@ SCHEMA = [
         standardization   VARCHAR,                 -- renames, casts, lossy values
         PRIMARY KEY (run_id, dataset, period),
         CHECK (rows_quarantined + rows_warned <= rows_checked)
+    )
+    """,
+    # Schema version 3: dataset-level metrics per file version (Phase 3).
+    # metric: rows | rows_per_day | raw_schema | null_rate | histogram | mean | median | p99
+    # column_name and bin are '' when they do not apply; text_value holds raw_schema as JSON.
+    """
+    CREATE TABLE IF NOT EXISTS dataset_metrics (
+        dataset       VARCHAR NOT NULL,
+        period        VARCHAR NOT NULL,
+        sha256        VARCHAR NOT NULL,
+        metric        VARCHAR NOT NULL,
+        column_name   VARCHAR NOT NULL DEFAULT '',
+        bin           VARCHAR NOT NULL DEFAULT '',
+        value         DOUBLE,
+        text_value    VARCHAR,
+        computed_at   TIMESTAMP NOT NULL,
+        PRIMARY KEY (dataset, period, sha256, metric, column_name, bin)
     )
     """,
 ]
