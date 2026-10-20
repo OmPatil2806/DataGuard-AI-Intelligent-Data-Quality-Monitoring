@@ -225,6 +225,27 @@ def load_quality_rules(path: Path | None = None) -> dict[str, Any]:
             raise ConfigError(f"{where} must contain only numbers")
         if any(b <= a for a, b in zip(edges, edges[1:], strict=False)):
             raise ConfigError(f"{where} must be strictly increasing")
+    baseline = defaults["baseline"]
+    for key, minimum in (("min_runs", 1), ("window", 1), ("max_gap_months", 1)):
+        value = baseline.get(key)
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, int) or value < minimum
+        ):
+            raise ConfigError(
+                f"{path.name}: defaults.baseline.{key} must be a whole number >= {minimum}"
+            )
+    if baseline.get("window", baseline["min_runs"]) < baseline["min_runs"]:
+        raise ConfigError(f"{path.name}: defaults.baseline.window must be >= min_runs")
+    for dataset, limits in (data.get("cold_start") or {}).items():
+        where = f"{path.name}: cold_start.{dataset}"
+        rows = (limits or {}).get("rows_per_day")
+        if rows is not None and not (
+            isinstance(rows, dict) and 0 <= rows.get("min", 0) < rows.get("max", float("inf"))
+        ):
+            raise ConfigError(f"{where}.rows_per_day needs 0 <= min < max")
+        null_max = (limits or {}).get("null_rate_max")
+        if null_max is not None and not (isinstance(null_max, int | float) and 0 <= null_max <= 1):
+            raise ConfigError(f"{where}.null_rate_max must be between 0 and 1")
     _require(data, "rules", path.name)
     return data
 

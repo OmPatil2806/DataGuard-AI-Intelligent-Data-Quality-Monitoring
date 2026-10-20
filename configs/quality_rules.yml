@@ -5,7 +5,9 @@ version: 1
 
 defaults:
   baseline:
-    min_runs: 3              # earlier runs needed before a baseline is trusted
+    min_runs: 3              # earlier months needed before a baseline is trusted
+    window: 6                # at most this many earlier months form the baseline
+    max_gap_months: 12       # earlier months further back than this are ignored
   volume:
     tolerance: 0.30          # allowed deviation of rows per day from the rolling median
   drift:
@@ -20,6 +22,12 @@ defaults:
       total_amount: [0, 10, 15, 20, 25, 30, 40, 50, 70, 100, 150]
   incidents:
     resolve_after_clean_runs: 2
+
+# Fixed limits per dataset, used while a month has no trusted baseline yet (cold start).
+cold_start:
+  yellow_taxi:
+    rows_per_day: {min: 50000, max: 400000}   # profiled: 91k-114k (2023), 248k (2019-01)
+    null_rate_max: 0.10                       # profiled: at most 5.33% per column
 
 # Row-level rules per dataset. Columns use the standard schema (configs/datasets.yml).
 # Every rule has:

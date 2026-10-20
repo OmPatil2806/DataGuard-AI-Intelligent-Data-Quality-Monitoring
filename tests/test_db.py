@@ -48,6 +48,7 @@ def test_connect_creates_parent_folder(db_path):
 
 def test_init_creates_control_tables(con):
     assert db.list_tables(con) == [
+        "baselines",
         "dataset_metrics",
         "file_manifest",
         "pipeline_runs",
@@ -134,4 +135,4 @@ def test_upgrade_from_schema_version_1_keeps_data(db_path):
         assert "rule_run_log" in db.list_tables(con)
         assert con.execute("SELECT count(*) FROM pipeline_runs").fetchone()[0] == 1
         assert "dataset_metrics" in db.list_tables(con)
-        assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 3
+        assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 4

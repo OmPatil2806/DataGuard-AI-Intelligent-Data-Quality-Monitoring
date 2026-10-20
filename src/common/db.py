@@ -19,7 +19,7 @@ if __package__ in (None, ""):
 
 from common.config import load_datasets_config  # noqa: E402
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 RUN_STATUSES = ("RUNNING", "SUCCESS", "WARNING", "FAILED")
 FILE_STATUSES = ("REGISTERED", "LOADED", "SKIPPED", "FAILED")
@@ -120,6 +120,22 @@ SCHEMA = [
         text_value    VARCHAR,
         computed_at   TIMESTAMP NOT NULL,
         PRIMARY KEY (dataset, period, sha256, metric, column_name, bin)
+    )
+    """,
+    # Schema version 4: the baseline each dataset check compared a month with (Phase 3).
+    """
+    CREATE TABLE IF NOT EXISTS baselines (
+        run_id          VARCHAR NOT NULL,
+        dataset         VARCHAR NOT NULL,
+        period          VARCHAR NOT NULL,          -- month that was checked
+        metric          VARCHAR NOT NULL,          -- rows_per_day | null_rate | distribution
+        column_name     VARCHAR NOT NULL DEFAULT '',
+        bin             VARCHAR NOT NULL DEFAULT '',
+        value           DOUBLE,
+        source_periods  VARCHAR NOT NULL,          -- earlier months it was built from
+        trusted         BOOLEAN NOT NULL,          -- false: cold start, fixed limits apply
+        computed_at     TIMESTAMP NOT NULL,
+        PRIMARY KEY (run_id, dataset, period, metric, column_name, bin)
     )
     """,
 ]
