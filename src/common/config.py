@@ -231,6 +231,13 @@ def load_quality_rules(path: Path | None = None) -> dict[str, Any]:
     grace = freshness.get("grace_days", 0)
     if isinstance(grace, bool) or not isinstance(grace, int | float) or grace < 0:
         raise ConfigError(f"{path.name}: defaults.freshness.grace_days must be 0 or more")
+    null_rate = defaults.get("null_rate") or {}
+    for key in ("max_increase", "complete_below", "max_increase_complete"):
+        value = null_rate.get(key)
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, int | float) or not 0 < value < 1
+        ):
+            raise ConfigError(f"{path.name}: defaults.null_rate.{key} must be between 0 and 1")
     baseline = defaults["baseline"]
     for key, minimum in (("min_runs", 1), ("window", 1), ("max_gap_months", 1)):
         value = baseline.get(key)

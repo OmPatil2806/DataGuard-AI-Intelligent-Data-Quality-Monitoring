@@ -11,13 +11,14 @@ Results are stored per run in Step 3.6; Phase 4 turns failures into incidents.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
 from common.config import SEVERITIES, Dataset, load_quality_rules
 from ingestion.manifest import ManifestEntry
-from quality.baselines import Baseline, BaselineSettings
+from quality.baselines import Baseline, BaselineSettings, shares
 from quality.metrics import MonthMetrics
 
 STATUSES = ("pass", "fail", "skipped")
@@ -58,15 +59,26 @@ class CheckSettings:
     volume_tolerance: float = 0.30
     freshness_mode: str = "replay"
     grace_days: float = 3
+    null_max_increase: float = 0.02
+    null_complete_below: float = 0.001
+    null_max_increase_complete: float = 0.001
+    psi_medium: float = 0.10
+    psi_high: float = 0.20
 
 
 def check_settings(path: Path | None = None) -> CheckSettings:
     defaults = load_quality_rules(path)["defaults"]
     freshness = defaults.get("freshness") or {}
+    null_rate = defaults.get("null_rate") or {}
     return CheckSettings(
         volume_tolerance=defaults["volume"]["tolerance"],
         freshness_mode=freshness.get("mode", "replay"),
         grace_days=freshness.get("grace_days", 3),
+        null_max_increase=null_rate.get("max_increase", 0.02),
+        null_complete_below=null_rate.get("complete_below", 0.001),
+        null_max_increase_complete=null_rate.get("max_increase_complete", 0.001),
+        psi_medium=defaults["drift"]["psi_medium"],
+        psi_high=defaults["drift"]["psi_high"],
     )
 
 
@@ -301,3 +313,203 @@ def check_freshness(entry: ManifestEntry, settings: CheckSettings) -> CheckResul
         expected=expected,
         detail=f"{late_days:.1f} day(s) late",
     )
+
+
+# --- NULL rate -----------------------------------------------------------------------------
+
+
+def _pct(share: float) -> str:
+    return f"{100 * share:.2f}%"
+
+
+def check_null_rates(
+    m: MonthMetrics,
+    baseline: Baseline,
+    settings: CheckSettings,
+    limits: BaselineSettings,
+) -> list[CheckResult]:
+    """One result per standard column: the NULL share against its baseline median.
+
+    The limit is an absolute increase (default 2 points); columns that are normally complete
+    (baseline below 0.1%) get a tighter one (0.1 points). Beyond the limit: low up to twice,
+    medium up to five times, high above. Fewer NULLs than usual always pass. During a cold
+    start the share must stay below the fixed null_rate_max; without one the check is skipped.
+    """
+    results = []
+    for column, rate in m.null_rates.items():
+        observed = _pct(rate)
+        if baseline.trusted and column in baseline.null_rates:
+            usual = baseline.null_rates[column]
+            complete = usual < settings.null_complete_below
+            limit = settings.null_max_increase_complete if complete else settings.null_max_increase
+            increase = rate - usual
+            expected = f"{_pct(usual)} + at most {100 * limit:.1f} points"
+            detail = f"{100 * increase:+.2f} points against the baseline median"
+            if complete:
+                detail += " (normally complete column)"
+            if increase <= limit:
+                results.append(
+                    CheckResult(
+                        "null_rate",
+                        m.period,
+                        "pass",
+                        column=column,
+                        observed=observed,
+                        expected=expected,
+                        detail=detail,
+                        baseline=baseline.note,
+                    )
+                )
+                continue
+            ratio = increase / limit
+            severity = "low" if ratio <= 2 else "medium" if ratio <= 5 else "high"
+            results.append(
+                CheckResult(
+                    "null_rate",
+                    m.period,
+                    "fail",
+                    severity=severity,
+                    column=column,
+                    observed=observed,
+                    expected=expected,
+                    detail=detail,
+                    baseline=baseline.note,
+                )
+            )
+            continue
+
+        if limits.null_rate_max is None:
+            results.append(
+                CheckResult(
+                    "null_rate",
+                    m.period,
+                    "skipped",
+                    column=column,
+                    observed=observed,
+                    detail="no baseline and no fixed limit",
+                    baseline=baseline.note,
+                )
+            )
+            continue
+        expected = f"at most {_pct(limits.null_rate_max)} (cold-start limit)"
+        if rate <= limits.null_rate_max:
+            results.append(
+                CheckResult(
+                    "null_rate",
+                    m.period,
+                    "pass",
+                    column=column,
+                    observed=observed,
+                    expected=expected,
+                    detail="within the cold-start limit",
+                    baseline=baseline.note,
+                )
+            )
+        else:
+            results.append(
+                CheckResult(
+                    "null_rate",
+                    m.period,
+                    "fail",
+                    severity="medium",
+                    column=column,
+                    observed=observed,
+                    expected=expected,
+                    detail="above the cold-start limit",
+                    baseline=baseline.note,
+                )
+            )
+    return results
+
+
+# --- distribution drift (PSI) --------------------------------------------------------------
+
+PSI_FLOOR = 1e-4  # share used for empty bins, so the logarithm stays finite
+
+
+def psi(expected: list[float], actual: list[float]) -> float:
+    """Population Stability Index between two lists of bin shares."""
+    if len(expected) != len(actual):
+        raise ValueError("both distributions need the same bins")
+    total = 0.0
+    for e, a in zip(expected, actual, strict=True):
+        e, a = max(e, PSI_FLOOR), max(a, PSI_FLOOR)
+        total += (a - e) * math.log(a / e)
+    return total
+
+
+def bin_labels(edges: list[float]) -> list[str]:
+    labels = [f"< {edges[0]:g}"]
+    labels += [f"{a:g} to {b:g}" for a, b in zip(edges, edges[1:], strict=False)]
+    return labels + [f">= {edges[-1]:g}"]
+
+
+def check_drift(
+    m: MonthMetrics,
+    baseline: Baseline,
+    settings: CheckSettings,
+    bins: dict[str, list[float]],
+) -> list[CheckResult]:
+    """One result per binned column: PSI of the month against the baseline distribution.
+
+    PSI >= psi_high (0.20): high; >= psi_medium (0.10): medium. Skipped during a cold start,
+    because a distribution needs history to be compared with.
+    """
+    results = []
+    for column, counts in m.histograms.items():
+        if not baseline.trusted or column not in baseline.distributions:
+            results.append(
+                CheckResult(
+                    "drift",
+                    m.period,
+                    "skipped",
+                    column=column,
+                    detail="no baseline distribution yet",
+                    baseline=baseline.note,
+                )
+            )
+            continue
+        usual = baseline.distributions[column]
+        current = shares(counts)
+        value = psi(usual, current)
+        labels = (
+            bin_labels(bins[column]) if column in bins else [str(i) for i in range(len(counts))]
+        )
+        moved = max(range(len(current)), key=lambda i: abs(current[i] - usual[i]))
+        detail = (
+            f"largest change in bin {labels[moved]}: {_pct(usual[moved])} -> {_pct(current[moved])}"
+        )
+        stats = m.stats.get(column, {})
+        if stats.get("median") is not None:
+            detail += f"; median {stats['median']:.3g}"
+        observed = f"PSI {value:.3f}"
+        expected = f"PSI < {settings.psi_medium:g}"
+        if value < settings.psi_medium:
+            results.append(
+                CheckResult(
+                    "drift",
+                    m.period,
+                    "pass",
+                    column=column,
+                    observed=observed,
+                    expected=expected,
+                    detail=detail,
+                    baseline=baseline.note,
+                )
+            )
+        else:
+            severity = "high" if value >= settings.psi_high else "medium"
+            results.append(
+                CheckResult(
+                    "drift",
+                    m.period,
+                    "fail",
+                    severity=severity,
+                    column=column,
+                    observed=observed,
+                    expected=expected,
+                    detail=detail,
+                    baseline=baseline.note,
+                )
+            )
+    return results

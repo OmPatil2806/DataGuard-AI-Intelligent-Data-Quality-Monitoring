@@ -10,6 +10,15 @@ defaults:
     max_gap_months: 12       # earlier months further back than this are ignored
   volume:
     tolerance: 0.30          # allowed deviation of rows per day from the rolling median
+  null_rate:
+    # Increase of the NULL share over the baseline median, in absolute terms (0.02 = 2 points).
+    # Open item O2 decided for absolute: a relative limit over-reacts on columns that are almost
+    # never empty. Beyond the limit: low up to 2x, medium up to 5x, high above.
+    max_increase: 0.02
+    # Columns that are normally complete (baseline below 0.1%) get a much tighter limit, so a
+    # 1% NULL spike in, say, fare_amount is not hidden by the 2-point limit.
+    complete_below: 0.001
+    max_increase_complete: 0.001
   drift:
     psi_medium: 0.10
     psi_high: 0.20

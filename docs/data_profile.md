@@ -215,8 +215,14 @@ Every category has a real finding or is covered by a fault in Phase 6.
     neither. `python src/profiling/diagnose_totals.py` measures both per vendor and lists the most
     common differences. Until then the rule `total_matches_parts` is in
     `configs/quality_rules.yml` with `enabled: false`, so it flags nothing.
-- **O2 — NULL-rate threshold (Phase 3).** Absolute (+2 pp) or relative threshold; the September 2023
-  jump is the calibration case.
-- **O3 — fare drift (Phase 3).** Calibrate PSI so the September fare step is Medium at most and a
-  ×1.61 unit change is High.
+- **O2 — NULL-rate threshold (decided in Step 3.5).** Absolute: at most +2 points over the
+  baseline median, and +0.1 points for columns that are normally complete (baseline below 0.1%),
+  so a 1% NULL spike in a complete column such as `fare_amount` is caught. Against the 2023
+  baselines only September exceeds the limit (+2.01 points over the median of March–August) and is
+  reported as **low**; every other month passes.
+- **O3 — fare drift (Step 3.5 measured, Step 3.7 confirms on the full data).** With the fixed bins,
+  scaling a taxi-like distance distribution gives PSI 0.023 at ×1.15, 0.087 at ×1.3, 0.136 at ×1.4,
+  0.20 at ×1.5 and 0.28 at ×1.61. So drift becomes **medium from about +32%** and **high from
+  +50%**; a miles-to-kilometres change is high. The September fare step (median +11%) is expected
+  to stay below medium; the real PSI values are checked in Step 3.7.
 - **O4 — canonical schema (Phase 2).** Confirm the standard types listed in section 2.
