@@ -207,6 +207,49 @@ def evaluate_sql(
     """
 
 
+@dataclass(frozen=True)
+class Summary:
+    rows: int
+    quarantined: int  # rows failing at least one quarantine rule
+    warned: int  # rows failing only warn rules
+    counts: list[RuleCount]
+
+    @property
+    def clean(self) -> int:
+        return self.rows - self.quarantined - self.warned
+
+
+def summarize(
+    con: duckdb.DuckDBPyConnection,
+    rules: list[Rule],
+    source_sql: str,
+    period: str | None = None,
+) -> Summary:
+    """Failures per rule and rows quarantined, warned and clean, computed in one pass."""
+    source, order = _ordered_source(con, source_sql)
+    if not rules:
+        rows = con.execute(f"SELECT count(*) FROM {source}").fetchone()[0]
+        return Summary(rows, 0, 0, [])
+    flags = _flag_columns(rules, period, order)
+    quarantine = " OR ".join(f"__f{i}" for i, r in enumerate(rules) if r.action == "quarantine")
+    any_failure = " OR ".join(f"__f{i}" for i in range(len(rules)))
+    quarantine = quarantine or "FALSE"
+    counts = ", ".join(f"count_if(__f{i})" for i in range(len(rules)))
+    values = con.execute(
+        f"""
+        SELECT count(*), count_if({quarantine}), count_if(({any_failure}) AND NOT ({quarantine})),
+               {counts}
+        FROM (SELECT {", ".join(flags)} FROM {source})
+        """
+    ).fetchone()
+    rows, quarantined, warned = values[:3]
+    per_rule = [
+        RuleCount(rule.id, rule.action, failed, rows)
+        for rule, failed in zip(rules, values[3:], strict=True)
+    ]
+    return Summary(rows, quarantined, warned, per_rule)
+
+
 def count_failures(
     con: duckdb.DuckDBPyConnection,
     rules: list[Rule],
@@ -214,19 +257,7 @@ def count_failures(
     period: str | None = None,
 ) -> list[RuleCount]:
     """How many rows fail each rule, computed in one pass."""
-    source, order = _ordered_source(con, source_sql)
-    if not rules:
-        return []
-    flags = _flag_columns(rules, period, order)
-    counts = ", ".join(f"count_if(__f{i})" for i in range(len(rules)))
-    values = con.execute(
-        f"SELECT count(*), {counts} FROM (SELECT {', '.join(flags)} FROM {source})"
-    ).fetchone()
-    rows = values[0]
-    return [
-        RuleCount(rule.id, rule.action, failed, rows)
-        for rule, failed in zip(rules, values[1:], strict=True)
-    ]
+    return summarize(con, rules, source_sql, period).counts
 
 
 def load_lookups(con: duckdb.DuckDBPyConnection, dataset: Dataset, folder: Path) -> list[str]:

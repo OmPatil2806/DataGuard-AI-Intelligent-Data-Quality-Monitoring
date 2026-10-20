@@ -19,7 +19,7 @@ if __package__ in (None, ""):
 
 from common.config import load_datasets_config  # noqa: E402
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 RUN_STATUSES = ("RUNNING", "SUCCESS", "WARNING", "FAILED")
 FILE_STATUSES = ("REGISTERED", "LOADED", "SKIPPED", "FAILED")
@@ -72,6 +72,39 @@ SCHEMA = [
         PRIMARY KEY (dataset, period, sha256)
     )
     """,
+    # Schema version 2: row rule results (Phase 2).
+    # One row per rule per checked file version and run.
+    """
+    CREATE TABLE IF NOT EXISTS rule_run_log (
+        run_id         VARCHAR NOT NULL,
+        dataset        VARCHAR NOT NULL,
+        period         VARCHAR NOT NULL,
+        sha256         VARCHAR NOT NULL,           -- file version that was checked
+        rule_id        VARCHAR NOT NULL,
+        category       VARCHAR NOT NULL,
+        action         VARCHAR NOT NULL CHECK (action IN ('quarantine', 'warn')),
+        severity       VARCHAR NOT NULL,
+        rows_checked   BIGINT NOT NULL,
+        rows_failed    BIGINT NOT NULL,
+        PRIMARY KEY (run_id, dataset, period, rule_id),
+        CHECK (rows_failed BETWEEN 0 AND rows_checked)
+    )
+    """,
+    # One row per checked file version and run: how many rows each action affects.
+    """
+    CREATE TABLE IF NOT EXISTS rule_run_summary (
+        run_id            VARCHAR NOT NULL,
+        dataset           VARCHAR NOT NULL,
+        period            VARCHAR NOT NULL,
+        sha256            VARCHAR NOT NULL,
+        rows_checked      BIGINT NOT NULL,
+        rows_quarantined  BIGINT NOT NULL,
+        rows_warned       BIGINT NOT NULL,
+        standardization   VARCHAR,                 -- renames, casts, lossy values
+        PRIMARY KEY (run_id, dataset, period),
+        CHECK (rows_quarantined + rows_warned <= rows_checked)
+    )
+    """,
 ]
 
 
@@ -98,11 +131,12 @@ def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     """Create the control tables if they do not exist. Safe to run any number of times."""
     for statement in SCHEMA:
         con.execute(statement)
-    con.execute(
-        "INSERT INTO schema_version (version) SELECT ? WHERE NOT EXISTS "
-        "(SELECT 1 FROM schema_version WHERE version = ?)",
-        [SCHEMA_VERSION, SCHEMA_VERSION],
-    )
+    for version in range(1, SCHEMA_VERSION + 1):
+        con.execute(
+            "INSERT INTO schema_version (version) SELECT ? WHERE NOT EXISTS "
+            "(SELECT 1 FROM schema_version WHERE version = ?)",
+            [version, version],
+        )
 
 
 def list_tables(con: duckdb.DuckDBPyConnection) -> list[str]:

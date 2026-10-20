@@ -56,6 +56,17 @@ Each file is registered in `file_manifest` (with its SHA-256), written unchanged
 `pipeline_runs`. Running the same command again skips files that are already in Bronze.
 Details: [docs/bronze_layout.md](docs/bronze_layout.md).
 
+## Check the data quality rules
+
+```bash
+python src/quality/standardize.py      # how each Bronze month is mapped to the standard schema
+python src/quality/run_rules.py        # run the row rules on every month in Bronze
+```
+
+Rules live in `configs/quality_rules.yml`. Each row gets the list of rules it fails, with a
+reason; results per rule and month are stored in `rule_run_log` and `rule_run_summary`.
+`notebooks/02_rule_experiments.ipynb` shows the latest run in detail.
+
 ## Profile the data
 
 Open `notebooks/01_data_profiling.ipynb` with the `.venv` kernel and run all cells. It reads

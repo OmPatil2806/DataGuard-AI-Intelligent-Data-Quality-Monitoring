@@ -141,12 +141,14 @@ def load_file(
     return BronzeResult(target, rows, "loaded")
 
 
-def current_files(con: duckdb.DuckDBPyConnection, dataset: Dataset | str) -> dict[str, Path]:
-    """The Bronze file to use per period: the most recently registered loaded version."""
+def current_versions(
+    con: duckdb.DuckDBPyConnection, dataset: Dataset | str
+) -> dict[str, tuple[Path, str]]:
+    """Per period: the Bronze file and SHA-256 of the most recently registered loaded version."""
     name = dataset.name if isinstance(dataset, Dataset) else dataset
     rows = con.execute(
         """
-        SELECT period, bronze_path FROM file_manifest
+        SELECT period, bronze_path, sha256 FROM file_manifest
         WHERE dataset = ? AND status = 'LOADED' AND bronze_path IS NOT NULL
         QUALIFY row_number() OVER (PARTITION BY period ORDER BY registered_at DESC) = 1
         ORDER BY period
@@ -154,6 +156,11 @@ def current_files(con: duckdb.DuckDBPyConnection, dataset: Dataset | str) -> dic
         [name],
     ).fetchall()
     return {
-        period: (REPO_ROOT / path if not Path(path).is_absolute() else Path(path))
-        for period, path in rows
+        period: (Path(path) if Path(path).is_absolute() else REPO_ROOT / path, sha)
+        for period, path, sha in rows
     }
+
+
+def current_files(con: duckdb.DuckDBPyConnection, dataset: Dataset | str) -> dict[str, Path]:
+    """The Bronze file to use per period: the most recently registered loaded version."""
+    return {period: path for period, (path, _) in current_versions(con, dataset).items()}

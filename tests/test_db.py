@@ -47,7 +47,13 @@ def test_connect_creates_parent_folder(db_path):
 
 
 def test_init_creates_control_tables(con):
-    assert db.list_tables(con) == ["file_manifest", "pipeline_runs", "schema_version"]
+    assert db.list_tables(con) == [
+        "file_manifest",
+        "pipeline_runs",
+        "rule_run_log",
+        "rule_run_summary",
+        "schema_version",
+    ]
     assert "rows_loaded" in columns(con, "pipeline_runs")
     assert {"sha256", "expected_at", "delivered_at", "loaded_run_id"} <= set(
         columns(con, "file_manifest")
@@ -59,7 +65,8 @@ def test_init_is_idempotent_and_keeps_data(con):
     db.init_schema(con)
     db.init_schema(con)
     assert con.execute("SELECT count(*) FROM pipeline_runs").fetchone()[0] == 1
-    assert con.execute("SELECT version FROM schema_version").fetchall() == [(db.SCHEMA_VERSION,)]
+    versions = con.execute("SELECT version FROM schema_version ORDER BY version").fetchall()
+    assert versions == [(v,) for v in range(1, db.SCHEMA_VERSION + 1)]
 
 
 def test_run_defaults(con):
@@ -112,3 +119,17 @@ def test_read_only_connection_reads_but_cannot_write(con, db_path):
 def test_read_only_needs_existing_database(tmp_path):
     with pytest.raises(FileNotFoundError, match="run the pipeline first"):
         db.connect(tmp_path / "missing.duckdb", read_only=True)
+
+
+def test_upgrade_from_schema_version_1_keeps_data(db_path):
+    """A database created in Phase 1 gains the Phase 2 tables without losing anything."""
+    with db.connect(db_path) as con:
+        for statement in db.SCHEMA[:3]:  # schema_version, pipeline_runs, file_manifest
+            con.execute(statement)
+        con.execute("INSERT INTO schema_version (version) VALUES (1)")
+        insert_run(con)
+    with db.connect(db_path) as con:
+        db.init_schema(con)
+        assert "rule_run_log" in db.list_tables(con)
+        assert con.execute("SELECT count(*) FROM pipeline_runs").fetchone()[0] == 1
+        assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 2
