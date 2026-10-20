@@ -70,6 +70,17 @@ reason; results per rule and month are stored in `rule_run_log` and `rule_run_su
 Every rule is documented in [docs/rule_catalogue.md](docs/rule_catalogue.md), generated from the
 config with `python src/quality/rule_catalogue.py` (`--results` also writes `docs/rule_results.md`).
 
+## Check whole months
+
+```bash
+python src/quality/metrics.py          # metrics per month (computed once per file version)
+python src/quality/run_checks.py       # schema, volume, freshness, NULL rate and drift checks
+```
+
+Each month is compared with a baseline built from up to six earlier months (cold-start limits
+apply until three exist). Results are stored in `dataset_check_results`, the baselines used in
+`baselines`.
+
 ## Profile the data
 
 Open `notebooks/01_data_profiling.ipynb` with the `.venv` kernel and run all cells. It reads

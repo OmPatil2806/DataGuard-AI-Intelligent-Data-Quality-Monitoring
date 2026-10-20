@@ -19,7 +19,7 @@ if __package__ in (None, ""):
 
 from common.config import load_datasets_config  # noqa: E402
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 RUN_STATUSES = ("RUNNING", "SUCCESS", "WARNING", "FAILED")
 FILE_STATUSES = ("REGISTERED", "LOADED", "SKIPPED", "FAILED")
@@ -140,6 +140,26 @@ SCHEMA = [
     """,
     # Schema version 5: a delivery time set on purpose (freshness replay and fault injection).
     "ALTER TABLE file_manifest ADD COLUMN IF NOT EXISTS simulated_delivered_at TIMESTAMP",
+    # Schema version 6: results of the dataset-level checks (Phase 3), one row per month,
+    # check and column (column_name is '' for checks on the whole month).
+    """
+    CREATE TABLE IF NOT EXISTS dataset_check_results (
+        run_id       VARCHAR NOT NULL,
+        dataset      VARCHAR NOT NULL,
+        period       VARCHAR NOT NULL,
+        sha256       VARCHAR NOT NULL,
+        "check"      VARCHAR NOT NULL,      -- schema, volume, freshness, null_rate, drift
+        column_name  VARCHAR NOT NULL DEFAULT '',
+        status       VARCHAR NOT NULL CHECK (status IN ('pass', 'fail', 'skipped')),
+        severity     VARCHAR CHECK (severity IN ('critical', 'high', 'medium', 'low')),
+        observed     VARCHAR,
+        expected     VARCHAR,
+        detail       VARCHAR,
+        baseline     VARCHAR,
+        PRIMARY KEY (run_id, dataset, period, "check", column_name),
+        CHECK ((status = 'fail') = (severity IS NOT NULL))
+    )
+    """,
 ]
 
 
