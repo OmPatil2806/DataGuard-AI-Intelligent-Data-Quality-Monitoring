@@ -9,8 +9,9 @@ freshness, volume, drift) raise incidents, and **Gold** monitoring tables feed a
 Version 1 runs on real NYC TLC Yellow Taxi data with deliberately injected faults, so detection
 quality is measured instead of assumed.
 
-**Status:** Phase 2 complete (row-level rules), with two items pending a run on the full data:
-the total-amount rule (open item O1) and the measured rule results. Next: Phase 3, dataset-level checks.
+**Status:** Phase 3 complete (dataset-level checks). Pending a run on the full data: the
+total-amount rule (open item O1), the measured rule results and the drift calibration check
+(notebook 03). Next: Phase 4, Silver, Quarantine and incidents.
 
 ## Setup
 
@@ -79,7 +80,8 @@ python src/quality/run_checks.py       # schema, volume, freshness, NULL rate an
 
 Each month is compared with a baseline built from up to six earlier months (cold-start limits
 apply until three exist). Results are stored in `dataset_check_results`, the baselines used in
-`baselines`.
+`baselines`. Details and calibration: [docs/dataset_checks.md](docs/dataset_checks.md);
+`notebooks/03_baselines_and_drift.ipynb` shows the latest run.
 
 ## Profile the data
 

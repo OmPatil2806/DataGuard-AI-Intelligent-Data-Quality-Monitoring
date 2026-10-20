@@ -57,3 +57,47 @@ def test_rule_experiments_notebook_runs(fixture_data_dir, tmp_path, monkeypatch)
     assert "latest rule run: run_0002" in text
     assert "fare_not_negative" in text
     assert "PULocationID 999 not in zone lookup" in text
+
+
+def test_baselines_and_drift_notebook_runs(tmp_path, monkeypatch):
+    """Five fixture months with planted month-level problems (see tests/test_run_checks.py)."""
+    import duckdb
+    from test_run_checks import FIXTURE, MONTHS
+
+    from ingestion import ingest_data
+    from quality import run_checks
+
+    incoming = tmp_path / "incoming"
+    incoming.mkdir()
+    for period, query in MONTHS.items():
+        target = incoming / f"yellow_tripdata_{period}.parquet"
+        duckdb.sql(f"COPY ({query.format(src=FIXTURE)}) TO '{target}' (FORMAT parquet)")
+    database = tmp_path / "dataguard.duckdb"
+    assert (
+        ingest_data.main(
+            [
+                "--months",
+                "2023-01:2023-05",
+                "--source",
+                str(incoming),
+                "--bronze",
+                str(tmp_path / "bronze"),
+                "--database",
+                str(database),
+            ]
+        )
+        == 0
+    )
+    assert run_checks.main(["--database", str(database)]) == 0
+
+    monkeypatch.setenv("DATAGUARD_DATABASE", str(database))
+    notebook = nbformat.read(REPO_ROOT / "notebooks" / "03_baselines_and_drift.ipynb", as_version=4)
+    client = NotebookClient(
+        notebook, timeout=120, kernel_name="python3", resources={"metadata": {"path": REPO_ROOT}}
+    )
+    client.execute()
+    outputs = [o for cell in notebook.cells if cell.cell_type == "code" for o in cell.outputs]
+    assert not [o for o in outputs if o.output_type == "error"]
+    text = "".join(str(o.get("text", "")) + str(o.get("data", {})) for o in outputs)
+    assert "latest check run: run_0002" in text
+    assert '"expected_but_missing"' in text and "2023-02" in text
