@@ -104,7 +104,7 @@ def test_changed_bins_are_not_compared():
 def test_settings_from_the_repository_config():
     s = baselines.settings_for("yellow_taxi")
     assert (s.min_runs, s.window, s.max_gap_months) == (3, 6, 12)
-    assert (s.rows_per_day_min, s.rows_per_day_max, s.null_rate_max) == (50000, 400000, 0.10)
+    assert (s.rows_per_day_min, s.rows_per_day_max, s.null_rate_max) == (50000, 200000, 0.10)
     assert baselines.settings_for("ved_signals").rows_per_day_min is None
 
 

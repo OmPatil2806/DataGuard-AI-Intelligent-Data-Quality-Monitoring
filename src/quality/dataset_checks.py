@@ -12,9 +12,12 @@ Results are stored per run in Step 3.6; Phase 4 turns failures into incidents.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
 
-from common.config import SEVERITIES, Dataset
-from quality.baselines import Baseline
+from common.config import SEVERITIES, Dataset, load_quality_rules
+from ingestion.manifest import ManifestEntry
+from quality.baselines import Baseline, BaselineSettings
 from quality.metrics import MonthMetrics
 
 STATUSES = ("pass", "fail", "skipped")
@@ -48,6 +51,23 @@ class CheckResult:
             raise ValueError(f"status must be one of {', '.join(STATUSES)}")
         if (self.status == "fail") != (self.severity is not None):
             raise ValueError("a failed check needs a severity, other statuses must not have one")
+
+
+@dataclass(frozen=True)
+class CheckSettings:
+    volume_tolerance: float = 0.30
+    freshness_mode: str = "replay"
+    grace_days: float = 3
+
+
+def check_settings(path: Path | None = None) -> CheckSettings:
+    defaults = load_quality_rules(path)["defaults"]
+    freshness = defaults.get("freshness") or {}
+    return CheckSettings(
+        volume_tolerance=defaults["volume"]["tolerance"],
+        freshness_mode=freshness.get("mode", "replay"),
+        grace_days=freshness.get("grace_days", 3),
+    )
 
 
 def worst(severities: list[str]) -> str:
@@ -150,4 +170,134 @@ def check_schema(m: MonthMetrics, baseline: Baseline, dataset: Dataset) -> Check
         detail="; ".join(c.detail for c in changes),
         baseline=compared,
         changes=tuple(changes),
+    )
+
+
+# --- volume --------------------------------------------------------------------------------
+
+
+def check_volume(
+    m: MonthMetrics,
+    baseline: Baseline,
+    settings: CheckSettings,
+    limits: BaselineSettings,
+) -> CheckResult:
+    """Rows per day against the baseline median, or against fixed limits during a cold start.
+
+    With a baseline, a deviation beyond the tolerance (default 30%) fails: medium up to twice
+    the tolerance, high beyond that. During a cold start the month must lie within the
+    configured rows_per_day limits (medium otherwise); without limits the check is skipped.
+    """
+    observed = f"{m.rows_per_day:,.0f} rows/day"
+    if baseline.trusted and baseline.rows_per_day:
+        change = m.rows_per_day / baseline.rows_per_day - 1
+        expected = f"{baseline.rows_per_day:,.0f} rows/day ± {settings.volume_tolerance:.0%}"
+        detail = f"{change:+.1%} against the median of {', '.join(baseline.source_periods)}"
+        if abs(change) <= settings.volume_tolerance:
+            return CheckResult(
+                "volume",
+                m.period,
+                "pass",
+                observed=observed,
+                expected=expected,
+                detail=detail,
+                baseline=baseline.note,
+            )
+        severity = "high" if abs(change) > 2 * settings.volume_tolerance else "medium"
+        direction = "drop" if change < 0 else "rise"
+        return CheckResult(
+            "volume",
+            m.period,
+            "fail",
+            severity=severity,
+            observed=observed,
+            expected=expected,
+            detail=f"volume {direction}: {detail}",
+            baseline=baseline.note,
+        )
+
+    low, high = limits.rows_per_day_min, limits.rows_per_day_max
+    if low is None and high is None:
+        return CheckResult(
+            "volume",
+            m.period,
+            "skipped",
+            observed=observed,
+            detail="no baseline and no fixed limits",
+            baseline=baseline.note,
+        )
+    low = low if low is not None else 0
+    high = high if high is not None else float("inf")
+    expected = f"{low:,.0f} to {high:,.0f} rows/day (cold-start limits)"
+    if low <= m.rows_per_day <= high:
+        return CheckResult(
+            "volume",
+            m.period,
+            "pass",
+            observed=observed,
+            expected=expected,
+            detail="within the cold-start limits",
+            baseline=baseline.note,
+        )
+    side = "below" if m.rows_per_day < low else "above"
+    return CheckResult(
+        "volume",
+        m.period,
+        "fail",
+        severity="medium",
+        observed=observed,
+        expected=expected,
+        detail=f"{side} the cold-start limits",
+        baseline=baseline.note,
+    )
+
+
+# --- freshness -----------------------------------------------------------------------------
+
+
+def delivery_time(entry: ManifestEntry, settings: CheckSettings) -> datetime | None:
+    """The delivery time the check judges: simulated, or real in live mode."""
+    if entry.simulated_delivered_at is not None:
+        return entry.simulated_delivered_at
+    if settings.freshness_mode == "live":
+        return entry.delivered_at
+    return entry.expected_at  # replay: historical files count as delivered on time
+
+
+def check_freshness(entry: ManifestEntry, settings: CheckSettings) -> CheckResult:
+    """Arrival against expected_at; late beyond the grace period fails.
+
+    Late by up to 7 days (after the grace period): low; up to 30 days: medium; more: high.
+    """
+    if entry.expected_at is None:
+        return CheckResult(
+            "freshness",
+            entry.period,
+            "skipped",
+            detail="no expected arrival time configured (expected_lag_days)",
+        )
+    delivered = delivery_time(entry, settings)
+    source = (
+        "simulated delivery"
+        if entry.simulated_delivered_at is not None
+        else f"{settings.freshness_mode} mode"
+    )
+    late_days = (delivered - entry.expected_at).total_seconds() / 86400
+    observed = f"delivered {delivered:%Y-%m-%d %H:%M} ({source})"
+    expected = f"by {entry.expected_at:%Y-%m-%d} + {settings.grace_days:g} day(s) grace"
+    if late_days <= settings.grace_days:
+        detail = "on time" if late_days <= 0 else f"{late_days:.1f} day(s) late, within grace"
+        return CheckResult(
+            "freshness", entry.period, "pass", observed=observed, expected=expected, detail=detail
+        )
+    overdue = late_days - settings.grace_days
+    severity = "low" if overdue <= 7 else "medium" if overdue <= 30 else "high"
+    return CheckResult(
+        "freshness",
+        entry.period,
+        "fail",
+        severity=severity,
+        observed=observed,
+        expected=expected,
+        detail=f"{late_days:.1f} day(s) late",
     )

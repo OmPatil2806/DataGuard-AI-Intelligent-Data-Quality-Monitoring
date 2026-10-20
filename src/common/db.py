@@ -19,7 +19,7 @@ if __package__ in (None, ""):
 
 from common.config import load_datasets_config  # noqa: E402
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 RUN_STATUSES = ("RUNNING", "SUCCESS", "WARNING", "FAILED")
 FILE_STATUSES = ("REGISTERED", "LOADED", "SKIPPED", "FAILED")
@@ -138,6 +138,8 @@ SCHEMA = [
         PRIMARY KEY (run_id, dataset, period, metric, column_name, bin)
     )
     """,
+    # Schema version 5: a delivery time set on purpose (freshness replay and fault injection).
+    "ALTER TABLE file_manifest ADD COLUMN IF NOT EXISTS simulated_delivered_at TIMESTAMP",
 ]
 
 

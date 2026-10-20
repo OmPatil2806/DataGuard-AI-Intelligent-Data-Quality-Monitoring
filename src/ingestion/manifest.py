@@ -53,6 +53,7 @@ class ManifestEntry:
     bronze_path: str | None = None
     loaded_run_id: str | None = None
     source_url: str | None = None
+    simulated_delivered_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -171,6 +172,17 @@ def set_status(
         WHERE dataset = ? AND period = ? AND sha256 = ?
         """,
         [status, bronze_path, run_id, entry.dataset, entry.period, entry.sha256],
+    )
+
+
+def set_simulated_delivery(
+    con: duckdb.DuckDBPyConnection, entry: ManifestEntry, when: datetime | None
+) -> None:
+    """Set (or with None clear) the delivery time the freshness check uses in replay mode."""
+    con.execute(
+        "UPDATE file_manifest SET simulated_delivered_at = ? "
+        "WHERE dataset = ? AND period = ? AND sha256 = ?",
+        [when, entry.dataset, entry.period, entry.sha256],
     )
 
 

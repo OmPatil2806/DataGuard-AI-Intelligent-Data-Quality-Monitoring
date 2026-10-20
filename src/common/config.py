@@ -225,6 +225,12 @@ def load_quality_rules(path: Path | None = None) -> dict[str, Any]:
             raise ConfigError(f"{where} must contain only numbers")
         if any(b <= a for a, b in zip(edges, edges[1:], strict=False)):
             raise ConfigError(f"{where} must be strictly increasing")
+    freshness = defaults.get("freshness") or {}
+    if freshness.get("mode", "replay") not in ("replay", "live"):
+        raise ConfigError(f"{path.name}: defaults.freshness.mode must be 'replay' or 'live'")
+    grace = freshness.get("grace_days", 0)
+    if isinstance(grace, bool) or not isinstance(grace, int | float) or grace < 0:
+        raise ConfigError(f"{path.name}: defaults.freshness.grace_days must be 0 or more")
     baseline = defaults["baseline"]
     for key, minimum in (("min_runs", 1), ("window", 1), ("max_gap_months", 1)):
         value = baseline.get(key)

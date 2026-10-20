@@ -143,3 +143,14 @@ def test_main_fails_when_no_file_exists(tmp_path):
     ]
     assert manifest.main(argv) == 1
     assert manifest.main(["--months", "2023-13"]) == 2
+
+
+def test_simulated_delivery_can_be_set_and_cleared(con, taxi, jan):
+    entry = manifest.register_file(con, taxi, jan).entry
+    assert entry.simulated_delivered_at is None
+    manifest.set_simulated_delivery(con, entry, datetime(2023, 4, 20))
+    assert manifest.get_entries(con, "yellow_taxi")[0].simulated_delivered_at == datetime(
+        2023, 4, 20
+    )
+    manifest.set_simulated_delivery(con, entry, None)
+    assert manifest.get_entries(con, "yellow_taxi")[0].simulated_delivered_at is None

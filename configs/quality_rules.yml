@@ -20,13 +20,22 @@ defaults:
       trip_distance: [0, 0.5, 1, 1.5, 2, 3, 4, 5, 7, 10, 15, 20, 30, 50]
       fare_amount: [0, 5, 7.5, 10, 12.5, 15, 20, 25, 30, 40, 50, 70, 100]
       total_amount: [0, 10, 15, 20, 25, 30, 40, 50, 70, 100, 150]
+  freshness:
+    # replay: historical files were downloaded long after they were published, so a file
+    #         counts as delivered on time unless file_manifest.simulated_delivered_at says
+    #         otherwise (set for tests and the stale-file fault).
+    # live:   the real arrival time (file_manifest.delivered_at) is used.
+    mode: replay
+    grace_days: 3              # arriving up to this many days after expected_at is on time
   incidents:
     resolve_after_clean_runs: 2
 
 # Fixed limits per dataset, used while a month has no trusted baseline yet (cold start).
 cold_start:
   yellow_taxi:
-    rows_per_day: {min: 50000, max: 400000}   # profiled: 91k-114k (2023), 248k (2019-01)
+    # Expected range for current operation (2023: 91k-114k). 2019-01 (248k) lies above it on
+    # purpose: its volume difference is reported even though it has no earlier month.
+    rows_per_day: {min: 50000, max: 200000}
     null_rate_max: 0.10                       # profiled: at most 5.33% per column
 
 # Row-level rules per dataset. Columns use the standard schema (configs/datasets.yml).

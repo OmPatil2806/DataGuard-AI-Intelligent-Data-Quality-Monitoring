@@ -45,7 +45,11 @@ not expectations. Thresholds marked *proposed* are decided in Phase 2 (row rules
   three previous runs (July–September, 93,778/day), October is +21%.
 - **Threshold:** a ±30% tolerance on rows per day passes every 2023 month; ±20% would raise a false
   alarm on October. **Keep ±30%** (already the default in `configs/quality_rules.yml`).
-- **2019-01** is 2.27× the 2023 median and must be flagged by the volume check.
+- **With the Phase 3 baseline** (median of up to six earlier months, from 2023-04 on), the changes
+  are: Apr +5.3%, May +6.1%, Jun +0.6%, Jul −14.5%, Aug −17.0%, Sep −13.5%, Oct +11.1%, Nov +8.5%,
+  Dec +6.2%. The largest is 13 points inside the ±30% tolerance.
+- **2019-01** is 2.27× the 2023 median. It has no earlier month within 12 months, so it is judged
+  by the cold-start limits (50,000–200,000 rows/day) and flagged as above them.
 
 ## 2. Schema
 

@@ -126,7 +126,7 @@ def test_read_only_needs_existing_database(tmp_path):
 def test_upgrade_from_schema_version_1_keeps_data(db_path):
     """A database created in Phase 1 gains the Phase 2 tables without losing anything."""
     with db.connect(db_path) as con:
-        for statement in db.SCHEMA[:3]:  # schema_version, pipeline_runs, file_manifest
+        for statement in db.SCHEMA[:3]:  # schema_version, pipeline_runs, file_manifest (v1)
             con.execute(statement)
         con.execute("INSERT INTO schema_version (version) VALUES (1)")
         insert_run(con)
@@ -135,4 +135,6 @@ def test_upgrade_from_schema_version_1_keeps_data(db_path):
         assert "rule_run_log" in db.list_tables(con)
         assert con.execute("SELECT count(*) FROM pipeline_runs").fetchone()[0] == 1
         assert "dataset_metrics" in db.list_tables(con)
-        assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 4
+        columns = [r[0] for r in con.execute("DESCRIBE file_manifest").fetchall()]
+        assert "simulated_delivered_at" in columns
+        assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 5
