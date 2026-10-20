@@ -141,9 +141,19 @@ def test_silver_keeps_warned_rows_with_their_reasons(setup, taxi):
 def test_columns(setup, taxi):
     r = process(setup, taxi)
     standard = [c for c, _ in taxi.columns]
+    enriched = [
+        "trip_duration_min",
+        "pickup_date",
+        "pickup_hour",
+        "pickup_borough",
+        "pickup_zone",
+        "dropoff_borough",
+        "dropoff_zone",
+    ]
     lineage = list(LINEAGE_COLUMNS)
     assert list(read(r.silver_path).columns) == [
         *standard,
+        *enriched,
         *lineage,
         "failed_rules",
         "reasons",
@@ -151,6 +161,7 @@ def test_columns(setup, taxi):
     ]
     assert list(read(r.quarantine_path).columns) == [
         *standard,
+        *enriched,
         *lineage,
         "failed_rules",
         "reasons",

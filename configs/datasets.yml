@@ -53,6 +53,23 @@ datasets:
       taxi_zone:
         url: https://d37ci6vzurychx.cloudfront.net/misc/taxi_zone_lookup.csv
         file: taxi_zone_lookup.csv
+    # Columns added to Silver and Quarantine (Phase 4). derived: SQL over the standard columns.
+    # joins: columns copied from a lookup where key = column; rows without a match get NULL.
+    # (The key is called `column`, not `on`: YAML reads a bare `on` as the boolean true.)
+    silver:
+      derived:
+        trip_duration_min: "(epoch(tpep_dropoff_datetime) - epoch(tpep_pickup_datetime)) / 60.0"
+        pickup_date: "CAST(tpep_pickup_datetime AS DATE)"
+        pickup_hour: "hour(tpep_pickup_datetime)"
+      joins:
+        - lookup: taxi_zone
+          key: LocationID
+          column: PULocationID
+          columns: {Borough: pickup_borough, Zone: pickup_zone}
+        - lookup: taxi_zone
+          key: LocationID
+          column: DOLocationID
+          columns: {Borough: dropoff_borough, Zone: dropoff_zone}
 
   ved_signals:
     description: Vehicle Energy Dataset, OBD-II signals from 383 cars (added in Phase 9)

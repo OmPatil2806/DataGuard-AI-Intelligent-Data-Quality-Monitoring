@@ -10,7 +10,9 @@ row rules once, then write
         rows with at least one quarantine failure, with every column, failed_rules,
         reasons and quarantine_rules (the failed rules whose action is quarantine)
 
-Both files keep the Bronze lineage columns (bronze_row_id, source_file, ingestion_timestamp,
+Both files add the dataset's enrichment columns (configs/datasets.yml: silver.derived and
+silver.joins, for the taxi data trip duration, pickup date and hour, and zone and borough
+names), keep the Bronze lineage columns (bronze_row_id, source_file, ingestion_timestamp,
 pipeline_run_id) and add silver_run_id. Both are written to temporary folders first, the
 row counts are verified (Silver + Quarantine = Bronze, no row twice), and only then are both
 moved into place, so a failure never leaves one half written.
@@ -48,6 +50,41 @@ class SilverResult:
     quarantine_rows: int
     warned_rows: int  # Silver rows that failed at least one warn rule
     status: str  # "processed" or "skipped" (this version was already processed)
+
+
+def _q(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def enrich_sql(con: duckdb.DuckDBPyConnection, dataset: Dataset, source: str) -> str:
+    """SQL adding the configured derived and lookup columns to `source` (a FROM-able).
+
+    Column order: standard columns, derived columns, lookup columns, then everything else
+    (lineage, failed_rules, reasons, ...). Lookup tables must be loaded (lookup_<name>) and
+    their join key must be unique, so a join can never duplicate rows.
+    """
+    names = [r[0] for r in con.execute(f"DESCRIBE SELECT * FROM {source}").fetchall()]
+    standard = [c for c, _ in dataset.columns if c in names]
+    rest = [c for c in names if c not in standard]
+
+    derived = ", ".join(f"({expr}) AS {_q(name)}" for name, expr in dataset.silver_derived)
+    inner = f"(SELECT *{', ' + derived if derived else ''} FROM {source}) s"
+    joins, joined = [], []
+    for i, join in enumerate(dataset.silver_joins):
+        table, alias = _q(row_rules.LOOKUP_PREFIX + join.lookup), f"__j{i}"
+        rows, keys = con.execute(
+            f"SELECT count(*), count(DISTINCT {_q(join.key)}) FROM {table}"
+        ).fetchone()
+        if rows != keys:
+            raise SilverError(f"lookup '{join.lookup}' has duplicate values in {join.key}")
+        joins.append(f"LEFT JOIN {table} {alias} ON s.{_q(join.column)} = {alias}.{_q(join.key)}")
+        joined += [f"{alias}.{_q(src)} AS {_q(dst)}" for src, dst in join.columns]
+
+    select = [f"s.{_q(c)}" for c in standard]
+    select += [f"s.{_q(name)}" for name, _ in dataset.silver_derived]
+    select += joined
+    select += [f"s.{_q(c)}" for c in rest]
+    return f"SELECT {', '.join(select)} FROM {inner} {' '.join(joins)}"
 
 
 def _sql_path(path: Path) -> str:
@@ -102,7 +139,8 @@ def process_version(
     quarantine_ids = [r.id for r in rules if r.action == "quarantine"]
     ids = "[" + ", ".join("'" + i.replace("'", "''") + "'" for i in quarantine_ids) + "]::VARCHAR[]"
 
-    con.execute(f"CREATE OR REPLACE TEMP TABLE {EVALUATED} AS {evaluated}")
+    enriched = enrich_sql(con, dataset, f"({evaluated})")
+    con.execute(f"CREATE OR REPLACE TEMP TABLE {EVALUATED} AS {enriched}")
     try:
         rows, quarantined, warned, distinct = con.execute(
             f"SELECT count(*), count_if(quarantine), "

@@ -41,6 +41,14 @@ class Lookup:
 
 
 @dataclass(frozen=True)
+class SilverJoin:
+    lookup: str
+    key: str  # column in the lookup
+    column: str  # standard column matched against the key
+    columns: tuple[tuple[str, str], ...]  # (lookup column, Silver column name)
+
+
+@dataclass(frozen=True)
 class Dataset:
     name: str
     description: str
@@ -52,6 +60,8 @@ class Dataset:
     timestamp_column: str | None = None
     expected_lag_days: int | None = None
     columns: tuple[tuple[str, str], ...] = ()  # standard schema: (name, DuckDB type)
+    silver_derived: tuple[tuple[str, str], ...] = ()  # (column, SQL expression)
+    silver_joins: tuple[SilverJoin, ...] = ()
     periods: tuple[str, ...] = ()
     lookups: tuple[Lookup, ...] = ()
 
@@ -159,6 +169,32 @@ def _parse_columns(raw: Any, where: str) -> tuple[tuple[str, str], ...]:
     return tuple(columns)
 
 
+def _parse_silver(raw: Any, where: str) -> dict[str, Any]:
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{where} must be a mapping with derived and/or joins")
+    derived = raw.get("derived") or {}
+    if not isinstance(derived, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) and v.strip() for k, v in derived.items()
+    ):
+        raise ConfigError(f"{where}.derived must map column names to SQL expressions")
+    joins = []
+    for i, join in enumerate(raw.get("joins") or []):
+        at = f"{where}.joins[{i}]"
+        if not isinstance(join, dict):
+            raise ConfigError(f"{at} must be a mapping")
+        for key in ("lookup", "key", "column", "columns"):
+            _require(join, key, at)
+        columns = join["columns"]
+        if not isinstance(columns, dict) or not columns:
+            raise ConfigError(f"{at}.columns must map lookup columns to Silver column names")
+        joins.append(
+            SilverJoin(join["lookup"], join["key"], join["column"], tuple(columns.items()))
+        )
+    return {"silver_derived": tuple(derived.items()), "silver_joins": tuple(joins)}
+
+
 def _parse_dataset(name: str, raw: dict[str, Any]) -> Dataset:
     where = f"datasets.{name}"
     lookups = tuple(
@@ -182,7 +218,22 @@ def _parse_dataset(name: str, raw: dict[str, Any]) -> Dataset:
         periods=_parse_periods(raw.get("periods"), f"{where}.periods"),
         lookups=lookups,
         columns=_parse_columns(raw.get("columns"), f"{where}.columns"),
+        **_parse_silver(raw.get("silver"), f"{where}.silver"),
     )
+    standard = {c for c, _ in dataset.columns}
+    lookup_names = {lookup.name for lookup in dataset.lookups}
+    added = [c for c, _ in dataset.silver_derived]
+    for join in dataset.silver_joins:
+        if join.lookup not in lookup_names:
+            raise ConfigError(f"{where}.silver: unknown lookup '{join.lookup}'")
+        if standard and join.column not in standard:
+            raise ConfigError(
+                f"{where}.silver: join column '{join.column}' is not a standard column"
+            )
+        added += [target for _, target in join.columns]
+    clash = sorted({c for c in added if added.count(c) > 1} | (set(added) & standard))
+    if clash:
+        raise ConfigError(f"{where}.silver: column(s) defined twice: {', '.join(clash)}")
     if dataset.enabled:
         for key in ("url_template", "file_template", "timestamp_column"):
             if not getattr(dataset, key):

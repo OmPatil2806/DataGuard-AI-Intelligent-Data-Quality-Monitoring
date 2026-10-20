@@ -71,6 +71,17 @@ reason; results per rule and month are stored in `rule_run_log` and `rule_run_su
 Every rule is documented in [docs/rule_catalogue.md](docs/rule_catalogue.md), generated from the
 config with `python src/quality/rule_catalogue.py` (`--results` also writes `docs/rule_results.md`).
 
+## Write Silver and Quarantine
+
+```bash
+python src/silver/process_silver.py    # every month in Bronze
+```
+
+Rows without a quarantine failure go to `data/silver/`, the others to `data/quarantine/` with every
+column and the failed rules and reasons. Both get trip duration, pickup date and hour, and pickup
+and dropoff zone and borough names (`configs/datasets.yml`, `silver:`). Counts per month are in
+`silver_log`.
+
 ## Check whole months
 
 ```bash

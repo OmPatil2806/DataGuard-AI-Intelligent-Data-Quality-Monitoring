@@ -19,7 +19,7 @@ if __package__ in (None, ""):
 
 from common.config import load_datasets_config  # noqa: E402
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 RUN_STATUSES = ("RUNNING", "SUCCESS", "WARNING", "FAILED")
 FILE_STATUSES = ("REGISTERED", "LOADED", "SKIPPED", "FAILED")
@@ -158,6 +158,26 @@ SCHEMA = [
         baseline     VARCHAR,
         PRIMARY KEY (run_id, dataset, period, "check", column_name),
         CHECK ((status = 'fail') = (severity IS NOT NULL))
+    )
+    """,
+    # Schema version 7: Silver and Quarantine files written per run (Phase 4).
+    """
+    CREATE TABLE IF NOT EXISTS silver_log (
+        run_id           VARCHAR NOT NULL,
+        dataset          VARCHAR NOT NULL,
+        period           VARCHAR NOT NULL,
+        sha256           VARCHAR NOT NULL,
+        status           VARCHAR NOT NULL CHECK (status IN ('processed', 'skipped')),
+        rows             BIGINT NOT NULL,
+        silver_rows      BIGINT NOT NULL,
+        quarantine_rows  BIGINT NOT NULL,
+        warned_rows      BIGINT NOT NULL,
+        silver_path      VARCHAR NOT NULL,
+        quarantine_path  VARCHAR NOT NULL,
+        logged_at        TIMESTAMP NOT NULL,
+        PRIMARY KEY (run_id, dataset, period),
+        CHECK (silver_rows + quarantine_rows = rows),
+        CHECK (warned_rows <= silver_rows)
     )
     """,
 ]

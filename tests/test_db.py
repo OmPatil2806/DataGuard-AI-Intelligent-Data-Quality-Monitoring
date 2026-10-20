@@ -56,6 +56,7 @@ def test_init_creates_control_tables(con):
         "rule_run_log",
         "rule_run_summary",
         "schema_version",
+        "silver_log",
     ]
     assert "rows_loaded" in columns(con, "pipeline_runs")
     assert {"sha256", "expected_at", "delivered_at", "loaded_run_id"} <= set(
@@ -138,4 +139,4 @@ def test_upgrade_from_schema_version_1_keeps_data(db_path):
         assert "dataset_metrics" in db.list_tables(con)
         columns = [r[0] for r in con.execute("DESCRIBE file_manifest").fetchall()]
         assert "simulated_delivered_at" in columns
-        assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 6
+        assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 7
