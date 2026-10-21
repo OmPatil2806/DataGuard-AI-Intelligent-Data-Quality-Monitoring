@@ -19,7 +19,7 @@ if __package__ in (None, ""):
 
 from common.config import load_datasets_config  # noqa: E402
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 RUN_STATUSES = ("RUNNING", "SUCCESS", "WARNING", "FAILED")
 FILE_STATUSES = ("REGISTERED", "LOADED", "SKIPPED", "FAILED")
@@ -260,6 +260,18 @@ SCHEMA = [
         pass_rate    DOUBLE NOT NULL CHECK (pass_rate BETWEEN 0 AND 1),
         source       VARCHAR NOT NULL,             -- what the pass rate was computed from
         PRIMARY KEY (dataset, period, sha256, category)
+    )
+    """,
+    # Schema version 10: one row per Gold table per build (Phase 5). The checksum covers the
+    # table's content without run ids and timestamps, so two builds of the same data match.
+    """
+    CREATE TABLE IF NOT EXISTS gold_build_log (
+        run_id      VARCHAR NOT NULL,
+        table_name  VARCHAR NOT NULL,
+        rows        BIGINT NOT NULL,
+        checksum    VARCHAR NOT NULL,
+        built_at    TIMESTAMP NOT NULL,
+        PRIMARY KEY (run_id, table_name)
     )
     """,
 ]

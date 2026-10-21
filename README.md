@@ -123,6 +123,18 @@ Categories without a result are left out. Scores are kept in `quality_scores` an
 category, how much the score depends on the weights, and the incident timeline. Details:
 [docs/incidents_and_score.md](docs/incidents_and_score.md).
 
+## Gold tables
+
+```bash
+python src/gold/monitoring_tables.py                          # rebuild every Gold table
+python src/gold/monitoring_tables.py --list                   # the Gold tables and what they hold
+```
+
+Gold holds the small summary tables the dashboard reads, inside the DuckDB file. It is always
+rebuilt in full from the control tables, in one transaction: a failed build keeps the previous
+Gold. Each build is logged in `gold_build_log` with a checksum per table that leaves out run ids
+and timestamps, so two builds of the same data match.
+
 ## Profile the data
 
 Open `notebooks/01_data_profiling.ipynb` with the `.venv` kernel and run all cells. It reads
