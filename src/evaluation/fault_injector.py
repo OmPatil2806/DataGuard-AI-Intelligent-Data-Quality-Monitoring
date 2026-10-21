@@ -321,9 +321,18 @@ def _spec(config: FaultsConfig, fault_id: str) -> FaultSpec:
 
 
 def inject(
-    config: FaultsConfig, fault_id: str, strength: float | None, source: Path, out_dir: Path
+    config: FaultsConfig,
+    fault_id: str,
+    strength: float | None,
+    source: Path,
+    out_dir: Path,
+    period: str | None = None,
 ) -> Manifest:
-    """Sample the source file, break it, write the file and its manifest to out_dir."""
+    """Sample the source file, break it, write the file and its manifest to out_dir.
+
+    period names the output file (default: the target month); the history months are written
+    with fault 'control', so they hold the same sample as every experiment."""
+    period = period or config.target_month
     spec = _spec(config, fault_id)
     if strength not in spec.strengths:
         raise ValueError(f"{fault_id}: strength {strength} is not configured {spec.strengths}")
@@ -347,7 +356,7 @@ def inject(
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    target = out_dir / load_datasets_config().dataset(config.dataset).file_for(config.target_month)
+    target = out_dir / load_datasets_config().dataset(config.dataset).file_for(period)
     pq.write_table(_to_arrow(result.frame.reset_index(drop=True), table.schema), target)
 
     manifest = Manifest(
@@ -358,7 +367,7 @@ def inject(
         strength=strength,
         description=spec.description,
         dataset=config.dataset,
-        target_month=config.target_month,
+        target_month=period,
         sample_fraction=config.sample_fraction,
         seed=config.seed,
         source_file=Path(source).name,
@@ -375,7 +384,8 @@ def inject(
         expect=[{k: v for k, v in asdict(e).items() if v} for e in spec.expect],
         note=result.note,
     )
-    (out_dir / MANIFEST).write_text(manifest.to_json(), encoding="utf-8")
+    name = MANIFEST if period == config.target_month else f"fault_manifest_{period}.json"
+    (out_dir / name).write_text(manifest.to_json(), encoding="utf-8")
     return manifest
 
 

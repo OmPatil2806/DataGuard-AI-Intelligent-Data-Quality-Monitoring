@@ -2,6 +2,7 @@
 
     python src/gold/rebuild.py                  # every month in Bronze
     python src/gold/rebuild.py --force          # also rewrite Silver versions already written
+    python src/gold/rebuild.py --months 2023-06 # Silver, checks and rules for these months only
 
 Each stage is the same command a user would run by hand, in this order:
 
@@ -12,8 +13,11 @@ Each stage is the same command a user would run by hand, in this order:
     5 score      src/quality/score.py
     6 gold       src/gold/monitoring_tables.py       every Gold table, one transaction
 
-Every stage is safe to repeat, so running the rebuild again on the same Bronze gives the same
-Gold: the same checksums in gold_build_log (run ids and timestamps aside).
+--months limits the stages that work month by month (silver, checks, rules); the checks still
+compare with every earlier month in the database, and the incidents, score and Gold stages
+always cover every month. Every stage is safe to repeat, so running the rebuild again on the
+same Bronze gives the same Gold: the same checksums in gold_build_log (run ids and timestamps
+aside).
 
 A stage that exits with 2 (invalid config or arguments) stops the rebuild. A stage that exits
 with 1 (for example one month failed) is reported and the later stages still run, on what is
@@ -53,14 +57,15 @@ def stages(args: argparse.Namespace) -> list[tuple[str, Callable[[list[str]], in
     silver = ["--silver", str(args.silver)] if args.silver else []
     quarantine = ["--quarantine", str(args.quarantine)] if args.quarantine else []
     force = ["--force"] if args.force else []
+    months = ["--months", args.months] if args.months else []
     return [
         (
             "silver",
             process_silver.main,
-            [*dataset, *lookups, *silver, *quarantine, *force, *database],
+            [*dataset, *months, *lookups, *silver, *quarantine, *force, *database],
         ),
-        ("checks", run_checks.main, [*dataset, *database]),
-        ("rules", run_rules.main, [*dataset, *lookups, *database]),
+        ("checks", run_checks.main, [*dataset, *months, *database]),
+        ("rules", run_rules.main, [*dataset, *months, *lookups, *database]),
         ("incidents", incidents_cli.main, [*database, *dataset, "update"]),
         ("score", score.main, [*dataset, *database]),
         ("gold", monitoring_tables.main, database),
@@ -91,7 +96,7 @@ def summary(results: list[StageResult]) -> str:
     return "\n".join(lines)
 
 
-def main(argv: list[str] | None = None) -> int:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Rebuild Silver, checks, incidents, score and Gold."
     )
@@ -104,9 +109,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--force", action="store_true", help="rewrite Silver versions already written"
     )
+    parser.add_argument(
+        "--months", help="e.g. 2023-06 or 2023-01:2023-03: silver, checks and rules only"
+    )
     parser.add_argument("--database", type=Path, help="DuckDB file (default: paths.duckdb)")
-    args = parser.parse_args(argv)
-    results = run(args)
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    results = run(parse_args(argv))
     print(summary(results))
     return max(r.exit_code for r in results)
 

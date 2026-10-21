@@ -166,7 +166,16 @@ python src/gold/lineage.py --period 2023-01 --row 42
 
 ```bash
 python src/evaluation/fault_injector.py --list                # the planned experiments
+python src/evaluation/run_experiments.py                      # run them all
+python src/evaluation/run_experiments.py --only control,null_spike-5pct
 ```
+
+`run_experiments.py` reads the history and target months and the zone lookup from
+`data/incoming/`. It builds the sampled history once (reused while the config and source files
+are unchanged), then gives every experiment its own copy of the history database, adds the
+broken month and runs `rebuild.py --months <target>`. Results: one folder per experiment under
+`data/evaluation/experiments/` with the database, the manifest, `experiment.json` (stage exit
+codes and times) and `log.txt`.
 
 Phase 6 measures what the pipeline catches. Each experiment breaks a copy of one clean month
 (`target_month` in `configs/faults.yml`) in one known way, at one strength, and records the

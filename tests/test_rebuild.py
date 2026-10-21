@@ -102,6 +102,14 @@ def test_stages_run_in_order(monkeypatch, tmp_path, capsys):
     assert argv["rules"][argv["rules"].index("--lookups") + 1] == "L"
     assert argv["incidents"][-1] == "update"
     assert argv["gold"] == ["--database", str(tmp_path / "d.duckdb")]
+    assert "--months" not in argv["silver"]
+    calls.clear()
+    assert rebuild.main(["--months", "2023-06"]) == 0
+    argv = dict(calls)
+    for stage in ("silver", "checks", "rules"):
+        assert argv[stage][argv[stage].index("--months") + 1] == "2023-06", stage
+    for stage in ("incidents", "score", "gold"):
+        assert "--months" not in argv[stage], stage
     out = capsys.readouterr().out
     assert "rebuild summary:" in out and out.count(" ok") >= 6
 
