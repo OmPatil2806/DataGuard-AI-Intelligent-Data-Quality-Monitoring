@@ -9,10 +9,10 @@ freshness, volume, drift) raise incidents, and **Gold** monitoring tables feed a
 Version 1 runs on real NYC TLC Yellow Taxi data with deliberately injected faults, so detection
 quality is measured instead of assumed.
 
-**Status:** Phase 4 complete (Silver, Quarantine, incidents and quality score). Pending a run on
-the full data: the total-amount rule (open item O1), the measured rule results, the drift
-calibration check (notebook 03) and the score calibration (notebook 04). Next: Phase 5, Gold
-tables and lineage.
+**Status:** Phase 5 complete (Gold tables and lineage). Pending a run on the full data: the
+total-amount rule (open item O1), the measured rule results, the drift calibration check
+(notebook 03) and the score calibration (notebook 04). Next: Phase 6, fault injection and
+detection evaluation.
 
 ## Setup
 
@@ -126,14 +126,19 @@ category, how much the score depends on the weights, and the incident timeline. 
 ## Gold tables
 
 ```bash
-python src/gold/monitoring_tables.py                          # rebuild every Gold table
+python src/gold/rebuild.py                                    # Silver, checks, rules, incidents, score, Gold
+python src/gold/monitoring_tables.py                          # rebuild every Gold table only
 python src/gold/monitoring_tables.py --list                   # the Gold tables and what they hold
 ```
+
+After `ingest_data.py`, `rebuild.py` runs every later stage in order, so one command brings
+everything up to date. Running it again on the same Bronze gives the same Gold.
 
 Gold holds the small summary tables the dashboard reads, inside the DuckDB file. It is always
 rebuilt in full from the control tables, in one transaction: a failed build keeps the previous
 Gold. Each build is logged in `gold_build_log` with a checksum per table that leaves out run ids
-and timestamps, so two builds of the same data match.
+and timestamps, so two builds of the same data match. Every column is described in
+[docs/gold_tables.md](docs/gold_tables.md).
 
 | Table | One row per | Holds |
 |---|---|---|
