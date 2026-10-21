@@ -144,10 +144,18 @@ and timestamps, so two builds of the same data match.
 | `gold_column_profile` | dataset, month and column | NULL share, mean, median, p99, rows per drift bin and PSI, with the check results |
 | `gold_incident_summary` | incident | Status, severity, months seen, active and until resolved, how it was resolved, recurrence chain, investigation and notes |
 | `gold_incident_monthly` | dataset and month | Incidents opened, recurring, seen and resolved, and active at the end of the month by severity |
+| `gold_lineage` | dataset and month | Source URL, file and SHA-256, Bronze, Silver and Quarantine files, the runs, and row counts read from the files: `ok`, `not_processed`, `missing_file` or `mismatch` |
 
 The health label is `critical` below a score of 80 or with a critical finding, `warning` below 95
 or with a high or medium finding, otherwise `healthy` (limits in `configs/severity_weights.yml`,
 `health`). A month without Silver is `not_scored`.
+
+Trace one row from its source file to Silver or Quarantine (`--row` is the row's 1-based
+position in the source file, `bronze_row_id`):
+
+```bash
+python src/gold/lineage.py --period 2023-01 --row 42
+```
 
 ## Profile the data
 

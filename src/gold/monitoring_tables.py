@@ -36,6 +36,7 @@ if __package__ in (None, ""):
 from common import db  # noqa: E402
 from common.config import SEVERITIES, load_datasets_config, load_severity_weights  # noqa: E402
 from common.runs import track_run, utc_now  # noqa: E402
+from gold import lineage  # noqa: E402
 from quality import baselines  # noqa: E402
 from quality.dataset_checks import schema_changes, worst  # noqa: E402
 
@@ -497,6 +498,14 @@ INCIDENT_MONTHLY = GoldTable(
     order_by="dataset, period",
 )
 
+LINEAGE = GoldTable(
+    name="gold_lineage",
+    description="Per dataset and month: source -> Bronze -> Silver/Quarantine, runs, row counts",
+    sql=lineage.lineage_sql,
+    order_by="dataset, period",
+    volatile=lineage.VOLATILE,
+)
+
 # In build order: later tables may read earlier ones.
 TABLES: list[GoldTable] = [
     MONTHS,
@@ -506,6 +515,7 @@ TABLES: list[GoldTable] = [
     COLUMN_PROFILE,
     INCIDENT_SUMMARY,
     INCIDENT_MONTHLY,
+    LINEAGE,
 ]
 
 
