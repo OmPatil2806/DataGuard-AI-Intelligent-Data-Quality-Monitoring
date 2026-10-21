@@ -289,6 +289,19 @@ def load_quality_rules(path: Path | None = None) -> dict[str, Any]:
             isinstance(value, bool) or not isinstance(value, int | float) or not 0 < value < 1
         ):
             raise ConfigError(f"{path.name}: defaults.null_rate.{key} must be between 0 and 1")
+    row_rules = (defaults.get("incidents") or {}).get("row_rules") or {}
+    where = f"{path.name}: defaults.incidents.row_rules"
+    for key in ("relative_increase", "min_increase"):
+        value = row_rules.get(key)
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, int | float) or value < 0
+        ):
+            raise ConfigError(f"{where}.{key} must be a number >= 0")
+    for action, value in (row_rules.get("cold_start_max_rate") or {}).items():
+        if action not in ("quarantine", "warn"):
+            raise ConfigError(f"{where}.cold_start_max_rate: unknown action '{action}'")
+        if isinstance(value, bool) or not isinstance(value, int | float) or not 0 < value <= 1:
+            raise ConfigError(f"{where}.cold_start_max_rate.{action} must be between 0 and 1")
     baseline = defaults["baseline"]
     for key, minimum in (("min_runs", 1), ("window", 1), ("max_gap_months", 1)):
         value = baseline.get(key)

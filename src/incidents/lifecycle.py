@@ -26,6 +26,7 @@ from common.config import SEVERITIES, load_quality_rules
 from common.runs import utc_now
 from incidents import incident_manager as im
 from incidents.incident_manager import Finding, Incident
+from incidents.severity_engine import rule_findings
 
 Key = tuple[str, str, str, str]  # dataset, source, rule_id, column
 
@@ -218,9 +219,35 @@ def apply_check_run(
     now: datetime | None = None,
 ) -> LifecycleResult:
     """Apply every month of a dataset check run, oldest month first."""
+    return _apply_months(
+        con, run_id, dataset, check_findings(con, run_id, dataset), resolve_after, now
+    )
+
+
+def apply_rule_run(
+    con: duckdb.DuckDBPyConnection,
+    run_id: str,
+    dataset: str,
+    resolve_after: int | None = None,
+    now: datetime | None = None,
+) -> LifecycleResult:
+    """Apply every month of a row rule run (run_rules.py), oldest month first."""
+    return _apply_months(
+        con, run_id, dataset, rule_findings(con, run_id, dataset), resolve_after, now
+    )
+
+
+def _apply_months(
+    con: duckdb.DuckDBPyConnection,
+    run_id: str,
+    dataset: str,
+    months: dict[str, tuple[list[Finding], set[Key]]],
+    resolve_after: int | None,
+    now: datetime | None,
+) -> LifecycleResult:
     resolve_after = resolve_after or resolve_after_clean_runs()
     total = LifecycleResult()
-    for period, (findings, checked) in sorted(check_findings(con, run_id, dataset).items()):
+    for period, (findings, checked) in sorted(months.items()):
         r = apply_period(con, dataset, period, run_id, findings, checked, resolve_after, now)
         for name in ("opened", "updated", "clean", "resolved"):
             getattr(total, name).extend(getattr(r, name))

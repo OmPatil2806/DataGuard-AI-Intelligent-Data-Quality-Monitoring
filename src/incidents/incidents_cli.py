@@ -76,8 +76,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--database", type=Path, help="DuckDB file (default: paths.duckdb)")
     parser.add_argument("--dataset", default="yellow_taxi", help="dataset name")
     sub = parser.add_subparsers(dest="command", required=True)
-    update = sub.add_parser("update", help="apply a dataset check run (default: the latest)")
-    update.add_argument("--run", help="run id of a run_checks.py run")
+    update = sub.add_parser(
+        "update", help="apply the latest dataset check run and the latest row rule run"
+    )
+    update.add_argument("--check-run", help="run id of a run_checks.py run (default: latest)")
+    update.add_argument("--rule-run", help="run id of a run_rules.py run (default: latest)")
     listing = sub.add_parser("list", help="list incidents")
     listing.add_argument("--all", action="store_true", help="include resolved incidents")
     sub.add_parser("show", help="details and history").add_argument("incident")
@@ -91,21 +94,41 @@ def main(argv: list[str] | None = None) -> int:
         db.init_schema(con)
         try:
             if args.command == "update":
-                run_id = (
-                    args.run
-                    or con.execute(
-                        "SELECT max(run_id) FROM dataset_check_results WHERE dataset = ?",
-                        [args.dataset],
-                    ).fetchone()[0]
-                )
-                if not run_id:
-                    print("no check run found: run python src/quality/run_checks.py first")
+                sources = [
+                    (
+                        "dataset_check_results",
+                        args.check_run,
+                        lifecycle.apply_check_run,
+                        "checks",
+                        "run_checks.py",
+                    ),
+                    (
+                        "rule_run_log",
+                        args.rule_run,
+                        lifecycle.apply_rule_run,
+                        "rules",
+                        "run_rules.py",
+                    ),
+                ]
+                applied = 0
+                for table, chosen, apply, label, command in sources:
+                    run_id = (
+                        chosen
+                        or con.execute(
+                            f"SELECT max(run_id) FROM {table} WHERE dataset = ?", [args.dataset]
+                        ).fetchone()[0]
+                    )
+                    if not run_id:
+                        print(f"{label}: no run found (run python src/quality/{command})")
+                        continue
+                    r = apply(con, run_id, args.dataset)
+                    applied += 1
+                    print(
+                        f"{label} {run_id}: {len(r.opened)} opened, {len(r.updated)} seen again, "
+                        f"{len(r.clean)} clean, {len(r.resolved)} resolved"
+                    )
+                if not applied:
                     return 1
-                r = lifecycle.apply_check_run(con, run_id, args.dataset)
-                print(
-                    f"{run_id}: {len(r.opened)} opened, {len(r.updated)} seen again, "
-                    f"{len(r.clean)} clean, {len(r.resolved)} resolved"
-                )
                 print(_table(im.list_incidents(con, dataset=args.dataset, active_only=True)))
             elif args.command == "list":
                 print(

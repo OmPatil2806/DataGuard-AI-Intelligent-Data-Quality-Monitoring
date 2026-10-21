@@ -97,13 +97,14 @@ apply until three exist). Results are stored in `dataset_check_results`, the bas
 ## Incidents
 
 ```bash
-python src/incidents/incidents_cli.py update                   # turn the latest check run into incidents
+python src/incidents/incidents_cli.py update                   # latest check run and rule run -> incidents
 python src/incidents/incidents_cli.py list                     # active incidents (--all for resolved too)
 python src/incidents/incidents_cli.py show INC-0001            # details and full history
 python src/incidents/incidents_cli.py investigate INC-0001 --note "asked the source"
 ```
 
-A failed check opens an incident; the same problem in later months updates it instead of opening
+A failed dataset check opens an incident, and so does a row rule whose failure rate clearly rises
+above its own history (steady, known problems do not); the same problem in later months updates it instead of opening
 a new one; it is resolved after two clean months in a row. A problem that returns later opens a
 new incident linked to the old one. Every change is kept in `incident_events`.
 
