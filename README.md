@@ -108,6 +108,18 @@ above its own history (steady, known problems do not); the same problem in later
 a new one; it is resolved after two clean months in a row. A problem that returns later opens a
 new incident linked to the old one. Every change is kept in `incident_events`.
 
+## Quality score
+
+```bash
+python src/quality/score.py                                    # score 0-100 per month with Silver
+```
+
+Each month gets `100 x sum(w x p) / sum(w)` over the categories in `configs/severity_weights.yml`.
+For row categories, `p` is the share of rows that fail none of that category's rules. For dataset
+checks, `p` comes from `check_scores` (pass 1.0, low 0.75, medium 0.5, high 0.25, critical 0).
+Categories without a result are left out. Scores are kept in `quality_scores` and
+`quality_score_parts`.
+
 ## Profile the data
 
 Open `notebooks/01_data_profiling.ipynb` with the `.venv` kernel and run all cells. It reads

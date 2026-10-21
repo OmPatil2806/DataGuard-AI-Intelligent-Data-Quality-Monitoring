@@ -19,7 +19,7 @@ if __package__ in (None, ""):
 
 from common.config import load_datasets_config  # noqa: E402
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 RUN_STATUSES = ("RUNNING", "SUCCESS", "WARNING", "FAILED")
 FILE_STATUSES = ("REGISTERED", "LOADED", "SKIPPED", "FAILED")
@@ -234,6 +234,32 @@ SCHEMA = [
         detail        VARCHAR,
         created_at    TIMESTAMP NOT NULL,
         PRIMARY KEY (incident_id, seq)
+    )
+    """,
+    # Schema version 9: quality score per month and file version (Phase 4).
+    """
+    CREATE TABLE IF NOT EXISTS quality_scores (
+        dataset      VARCHAR NOT NULL,
+        period       VARCHAR NOT NULL,
+        sha256       VARCHAR NOT NULL,
+        score        DOUBLE NOT NULL CHECK (score BETWEEN 0 AND 100),
+        rows         BIGINT NOT NULL,
+        check_run    VARCHAR,                      -- dataset check run used, if any
+        computed_at  TIMESTAMP NOT NULL,
+        PRIMARY KEY (dataset, period, sha256)
+    )
+    """,
+    # The parts the score is made of, one row per category.
+    """
+    CREATE TABLE IF NOT EXISTS quality_score_parts (
+        dataset      VARCHAR NOT NULL,
+        period       VARCHAR NOT NULL,
+        sha256       VARCHAR NOT NULL,
+        category     VARCHAR NOT NULL,
+        weight       DOUBLE NOT NULL,
+        pass_rate    DOUBLE NOT NULL CHECK (pass_rate BETWEEN 0 AND 1),
+        source       VARCHAR NOT NULL,             -- what the pass rate was computed from
+        PRIMARY KEY (dataset, period, sha256, category)
     )
     """,
 ]

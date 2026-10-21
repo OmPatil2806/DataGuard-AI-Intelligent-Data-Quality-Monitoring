@@ -343,4 +343,14 @@ def load_severity_weights(path: Path | None = None) -> dict[str, Any]:
     for category, weight in weights.items():
         if not isinstance(weight, int | float) or weight <= 0:
             raise ConfigError(f"{path.name}: weight for '{category}' must be a positive number")
+    scores = data.get("check_scores")
+    if scores is not None:
+        expected = {"pass", *SEVERITIES}
+        if not isinstance(scores, dict) or set(scores) != expected:
+            raise ConfigError(
+                f"{path.name}: check_scores needs exactly {', '.join(sorted(expected))}"
+            )
+        for result, value in scores.items():
+            if isinstance(value, bool) or not isinstance(value, int | float) or not 0 <= value <= 1:
+                raise ConfigError(f"{path.name}: check_scores.{result} must be between 0 and 1")
     return data
