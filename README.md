@@ -9,9 +9,10 @@ freshness, volume, drift) raise incidents, and **Gold** monitoring tables feed a
 Version 1 runs on real NYC TLC Yellow Taxi data with deliberately injected faults, so detection
 quality is measured instead of assumed.
 
-**Status:** Phase 3 complete (dataset-level checks). Pending a run on the full data: the
-total-amount rule (open item O1), the measured rule results and the drift calibration check
-(notebook 03). Next: Phase 4, Silver, Quarantine and incidents.
+**Status:** Phase 4 complete (Silver, Quarantine, incidents and quality score). Pending a run on
+the full data: the total-amount rule (open item O1), the measured rule results, the drift
+calibration check (notebook 03) and the score calibration (notebook 04). Next: Phase 5, Gold
+tables and lineage.
 
 ## Setup
 
@@ -118,7 +119,9 @@ Each month gets `100 x sum(w x p) / sum(w)` over the categories in `configs/seve
 For row categories, `p` is the share of rows that fail none of that category's rules. For dataset
 checks, `p` comes from `check_scores` (pass 1.0, low 0.75, medium 0.5, high 0.25, critical 0).
 Categories without a result are left out. Scores are kept in `quality_scores` and
-`quality_score_parts`.
+`quality_score_parts`. `notebooks/04_quality_score_calibration.ipynb` shows the points lost per
+category, how much the score depends on the weights, and the incident timeline. Details:
+[docs/incidents_and_score.md](docs/incidents_and_score.md).
 
 ## Profile the data
 

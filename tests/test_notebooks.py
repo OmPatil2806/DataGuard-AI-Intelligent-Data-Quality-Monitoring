@@ -101,3 +101,44 @@ def test_baselines_and_drift_notebook_runs(tmp_path, monkeypatch):
     text = "".join(str(o.get("text", "")) + str(o.get("data", {})) for o in outputs)
     assert "latest check run: run_0002" in text
     assert '"expected_but_missing"' in text and "2023-02" in text
+
+
+def test_quality_score_notebook_runs(tmp_path, monkeypatch):
+    """The five planted months through Silver, checks, rules, incidents and the score."""
+    import duckdb
+    from test_run_checks import FIXTURE, MONTHS
+
+    from incidents import incidents_cli
+    from ingestion import ingest_data
+    from quality import run_checks, run_rules, score
+    from silver import process_silver
+
+    incoming = tmp_path / "incoming"
+    incoming.mkdir()
+    for period, query in MONTHS.items():
+        target = incoming / f"yellow_tripdata_{period}.parquet"
+        duckdb.sql(f"COPY ({query.format(src=FIXTURE)}) TO '{target}' (FORMAT parquet)")
+    shutil.copy(FIXTURES / "taxi_zone_lookup_fixture.csv", incoming / "taxi_zone_lookup.csv")
+    common = ["--database", str(tmp_path / "dataguard.duckdb")]
+    bronze = ["--source", str(incoming), "--bronze", str(tmp_path / "bronze")]
+    assert ingest_data.main(["--months", "2023-01:2023-05", *bronze, *common]) == 0
+    silver = ["--silver", str(tmp_path / "silver"), "--quarantine", str(tmp_path / "quarantine")]
+    assert process_silver.main(["--lookups", str(incoming), *silver, *common]) == 0
+    assert run_checks.main(common) == 0
+    assert run_rules.main(["--lookups", str(incoming), *common]) == 0
+    assert incidents_cli.main([*common, "update"]) == 0
+    assert score.main(common) == 0
+
+    monkeypatch.setenv("DATAGUARD_DATABASE", str(tmp_path / "dataguard.duckdb"))
+    path = REPO_ROOT / "notebooks" / "04_quality_score_calibration.ipynb"
+    notebook = nbformat.read(path, as_version=4)
+    client = NotebookClient(
+        notebook, timeout=120, kernel_name="python3", resources={"metadata": {"path": REPO_ROOT}}
+    )
+    client.execute()
+    outputs = [o for cell in notebook.cells if cell.cell_type == "code" for o in cell.outputs]
+    assert not [o for o in outputs if o.output_type == "error"]
+    text = "".join(str(o.get("text", "")) + str(o.get("data", {})) for o in outputs)
+    assert "5 month(s) scored" in text
+    assert '"lowest"' in text and '"2023-05"' in text
+    assert '"active_incidents"' in text
