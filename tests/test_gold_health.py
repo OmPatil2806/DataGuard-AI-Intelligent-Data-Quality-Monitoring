@@ -100,7 +100,7 @@ def test_worst_severity_and_health(health):
     ],
 )
 def test_health_thresholds(database, limits, expected):
-    table = GoldTable("gold_health_test", "", lambda: dataset_health_sql(limits), "period")
+    table = GoldTable("gold_health_test", "", lambda con: dataset_health_sql(limits), "period")
     with db.connect(database) as con:
         gold.build(con, "run_test", [gold.MONTHS, table])
         labels = [r[0] for r in con.execute("SELECT health FROM gold_health_test").fetchall()]
@@ -113,7 +113,7 @@ def test_low_findings_alone_keep_a_month_healthy(database):
     table = GoldTable(
         "gold_health_test",
         "",
-        lambda: dataset_health_sql({"warning_below": 50, "critical_below": 40}),
+        lambda con: dataset_health_sql({"warning_below": 50, "critical_below": 40}),
         "period",
     )
     with db.connect(database) as con:

@@ -18,6 +18,7 @@ Exit codes: 0 success, 1 build failed.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from collections.abc import Callable
@@ -33,8 +34,10 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from common import db  # noqa: E402
-from common.config import SEVERITIES, load_severity_weights  # noqa: E402
+from common.config import SEVERITIES, load_datasets_config, load_severity_weights  # noqa: E402
 from common.runs import track_run, utc_now  # noqa: E402
+from quality import baselines  # noqa: E402
+from quality.dataset_checks import schema_changes, worst  # noqa: E402
 
 RUN_DATASET = "gold"  # pipeline_runs.dataset of a Gold build (Gold covers every dataset)
 NAME = re.compile(r"^gold_[a-z][a-z0-9_]*$")
@@ -44,7 +47,9 @@ NAME = re.compile(r"^gold_[a-z][a-z0-9_]*$")
 class GoldTable:
     name: str
     description: str
-    sql: str | Callable[[], str]  # SELECT over the control tables (a function: built when run)
+    # A SELECT over the control tables, or a function called with the connection at build time
+    # that returns one (it may register a DataFrame computed in Python and select from it).
+    sql: str | Callable[[duckdb.DuckDBPyConnection], str]
     order_by: str  # stored order, so the table reads the same after every build
     volatile: tuple[str, ...] = ()  # columns left out of the checksum
 
@@ -52,8 +57,8 @@ class GoldTable:
         if not NAME.match(self.name) or self.name == "gold_build_log":
             raise ValueError(f"invalid Gold table name '{self.name}'")
 
-    def query(self) -> str:
-        return self.sql() if callable(self.sql) else self.sql
+    def query(self, con: duckdb.DuckDBPyConnection) -> str:
+        return self.sql(con) if callable(self.sql) else self.sql
 
 
 @dataclass(frozen=True)
@@ -153,7 +158,7 @@ def dataset_health_sql(health: dict | None = None) -> str:
 DATASET_HEALTH = GoldTable(
     name="gold_dataset_health",
     description="One row per dataset and month: rows, score, findings and a health label",
-    sql=dataset_health_sql,
+    sql=lambda con: dataset_health_sql(),
     order_by="dataset, period",
     volatile=("silver_run_id", "check_run_id"),
 )
@@ -236,11 +241,136 @@ TRENDS = GoldTable(
     order_by="dataset, metric, item, period",
 )
 
-TABLES: list[GoldTable] = [
-    MONTHS,
-    DATASET_HEALTH,
-    TRENDS,
-]  # in build order: later tables may read earlier
+SCHEMA_HISTORY_COLUMNS = {
+    "dataset": "string",
+    "period": "string",
+    "column_key": "string",  # lower-case name: the same column across months
+    "column_name": "string",  # as delivered; the standard or last name when absent
+    "position": "Int64",  # 1-based position in the file; empty when absent
+    "dtype": "string",
+    "in_standard": "boolean",
+    "previous_period": "string",
+    "previous_name": "string",
+    "previous_dtype": "string",
+    "change": "string",  # unchanged, or the schema check's kinds joined by ', '
+    "severity": "string",
+    "detail": "string",
+}
+
+
+def schema_history_frame(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
+    """Every column per month of gold_months: delivered, missing or removed, with the change
+    against the previous month as the schema check sees it (same rules, same previous month)."""
+    months = con.execute(
+        "SELECT m.dataset, m.period, d.text_value FROM gold_months m JOIN dataset_metrics d "
+        "USING (dataset, period, sha256) WHERE d.metric = 'raw_schema' ORDER BY 1, 2"
+    ).fetchall()
+    by_dataset: dict[str, dict[str, list[tuple[str, str]]]] = {}
+    for dataset, period, schema in months:
+        by_dataset.setdefault(dataset, {})[period] = [tuple(c) for c in json.loads(schema)]
+    config = load_datasets_config() if by_dataset else None
+
+    records = []
+    for name, schemas in by_dataset.items():
+        dataset = config.dataset(name)
+        settings = baselines.settings_for(name)
+        standard = {c.lower(): c for c, _ in dataset.columns}
+        for period, current in schemas.items():
+            earlier = baselines.earlier_months(list(schemas), period, settings)
+            previous_period = earlier[-1] if earlier else None
+            previous = schemas[previous_period] if previous_period else None
+            changes: dict[str, list] = {}
+            for change in schema_changes(current, previous, dataset):
+                changes.setdefault(change.column.lower(), []).append(change)
+            now = {c.lower(): (i, c, t) for i, (c, t) in enumerate(current, start=1)}
+            before = {c.lower(): (c, t) for c, t in previous or []}
+            absent = [k for k in dict.fromkeys([*standard, *before]) if k not in now]
+            for key in [*now, *absent]:
+                found = changes.get(key, [])
+                if key in now:
+                    position, column, dtype = now[key]
+                elif found:  # missing standard column or removed extra column
+                    position, column, dtype = None, before.get(key, (standard.get(key),))[0], None
+                else:
+                    continue
+                old = before.get(key, (None, None))
+                records.append(
+                    {
+                        "dataset": name,
+                        "period": period,
+                        "column_key": key,
+                        "column_name": column,
+                        "position": position,
+                        "dtype": dtype,
+                        "in_standard": key in standard,
+                        "previous_period": previous_period,
+                        "previous_name": old[0],
+                        "previous_dtype": old[1],
+                        "change": ", ".join(c.kind for c in found) or "unchanged",
+                        "severity": worst([c.severity for c in found]) if found else None,
+                        "detail": "; ".join(c.detail for c in found) or None,
+                    }
+                )
+    frame = pd.DataFrame(records, columns=list(SCHEMA_HISTORY_COLUMNS))
+    return frame.astype(SCHEMA_HISTORY_COLUMNS)
+
+
+def _schema_history_sql(con: duckdb.DuckDBPyConnection) -> str:
+    con.register("gold_schema_history_frame", schema_history_frame(con))
+    return "SELECT * FROM gold_schema_history_frame"
+
+
+SCHEMA_HISTORY = GoldTable(
+    name="gold_schema_history",
+    description="Per month and column: name and type as delivered, and the change to last month",
+    sql=_schema_history_sql,
+    order_by="dataset, period, position NULLS LAST, column_key",
+)
+
+# One row per dataset, month and column with a NULL-rate metric (every standard column);
+# mean, median, p99, histogram (rows per fixed bin) and PSI only for the binned columns.
+COLUMN_PROFILE = GoldTable(
+    name="gold_column_profile",
+    description="Per month and column: NULL share, mean, median, p99, histogram and PSI",
+    sql="""
+        WITH stats AS (
+            SELECT m.dataset, m.period, d.column_name,
+                   max(d.value) FILTER (WHERE d.metric = 'null_rate') AS null_rate,
+                   max(d.value) FILTER (WHERE d.metric = 'mean') AS mean,
+                   max(d.value) FILTER (WHERE d.metric = 'median') AS median,
+                   max(d.value) FILTER (WHERE d.metric = 'p99') AS p99,
+                   list(CAST(d.value AS BIGINT) ORDER BY TRY_CAST(d.bin AS INTEGER))
+                       FILTER (WHERE d.metric = 'histogram') AS histogram
+            FROM gold_months m JOIN dataset_metrics d USING (dataset, period, sha256)
+            WHERE d.metric IN ('null_rate', 'mean', 'median', 'p99', 'histogram')
+              AND d.column_name <> ''
+            GROUP BY ALL
+        ),
+        nulls AS (
+            SELECT dataset, period, item AS column_name, baseline AS null_rate_baseline,
+                   check_status AS null_rate_status, severity AS null_rate_severity
+            FROM gold_trends WHERE metric = 'null_rate'
+        ),
+        drift AS (
+            SELECT dataset, period, item AS column_name, value AS psi,
+                   check_status AS drift_status, severity AS drift_severity
+            FROM gold_trends WHERE metric = 'psi'
+        )
+        SELECT s.dataset, s.period, s.column_name,
+               s.null_rate, n.null_rate_baseline, n.null_rate_status, n.null_rate_severity,
+               s.mean, s.median, s.p99,
+               CASE WHEN len(s.histogram) > 0 THEN s.histogram END AS histogram,
+               d.psi, d.drift_status, d.drift_severity
+        FROM stats s
+        LEFT JOIN nulls n USING (dataset, period, column_name)
+        LEFT JOIN drift d USING (dataset, period, column_name)
+        WHERE s.null_rate IS NOT NULL
+    """,
+    order_by="dataset, column_name, period",
+)
+
+# In build order: later tables may read earlier ones.
+TABLES: list[GoldTable] = [MONTHS, DATASET_HEALTH, TRENDS, SCHEMA_HISTORY, COLUMN_PROFILE]
 
 
 def checksum(con: duckdb.DuckDBPyConnection, table: str, volatile: tuple[str, ...] = ()) -> str:
@@ -270,7 +400,7 @@ def build(
         for table in tables:
             con.execute(
                 f"CREATE OR REPLACE TABLE {table.name} AS "
-                f"SELECT * FROM ({table.query()}) ORDER BY {table.order_by}"
+                f"SELECT * FROM ({table.query(con)}) ORDER BY {table.order_by}"
             )
             rows = con.execute(f"SELECT count(*) FROM {table.name}").fetchone()[0]
             built.append(BuiltTable(table.name, rows, checksum(con, table.name, table.volatile)))
