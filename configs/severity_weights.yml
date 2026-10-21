@@ -33,3 +33,12 @@ check_scores:
   medium: 0.5
   high: 0.25
   critical: 0.0
+
+# Health label of a month in gold_dataset_health:
+#   critical  score below critical_below, or a critical finding
+#   warning   score below warning_below, or a high or medium finding
+#   healthy   otherwise (low findings alone do not change the label)
+# A finding is a failed dataset check or an incident seen that month.
+health:
+  warning_below: 95
+  critical_below: 80

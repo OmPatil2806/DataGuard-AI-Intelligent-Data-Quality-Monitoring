@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -32,6 +33,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from common import db  # noqa: E402
+from common.config import SEVERITIES, load_severity_weights  # noqa: E402
 from common.runs import track_run, utc_now  # noqa: E402
 
 RUN_DATASET = "gold"  # pipeline_runs.dataset of a Gold build (Gold covers every dataset)
@@ -42,13 +44,16 @@ NAME = re.compile(r"^gold_[a-z][a-z0-9_]*$")
 class GoldTable:
     name: str
     description: str
-    sql: str  # SELECT over the control tables
+    sql: str | Callable[[], str]  # SELECT over the control tables (a function: built when run)
     order_by: str  # stored order, so the table reads the same after every build
     volatile: tuple[str, ...] = ()  # columns left out of the checksum
 
     def __post_init__(self) -> None:
         if not NAME.match(self.name) or self.name == "gold_build_log":
             raise ValueError(f"invalid Gold table name '{self.name}'")
+
+    def query(self) -> str:
+        return self.sql() if callable(self.sql) else self.sql
 
 
 @dataclass(frozen=True)
@@ -73,7 +78,87 @@ MONTHS = GoldTable(
     volatile=("loaded_run_id", "registered_at"),
 )
 
-TABLES: list[GoldTable] = [MONTHS]
+
+def _rank(column: str) -> str:
+    """critical 4 ... low 1, else 0 (the order of SEVERITIES)."""
+    cases = " ".join(f"WHEN '{s}' THEN {len(SEVERITIES) - i}" for i, s in enumerate(SEVERITIES))
+    return f"CASE {column} {cases} ELSE 0 END"
+
+
+def dataset_health_sql(health: dict | None = None) -> str:
+    """One row per month of gold_months: rows, score, findings and a health label."""
+    health = health or load_severity_weights().get("health") or {}
+    warning_below = float(health.get("warning_below", 95))
+    critical_below = float(health.get("critical_below", 80))
+    worst = "greatest(coalesce(c.worst_check, 0), coalesce(f.worst_incident, 0))"
+    names = " ".join(f"WHEN {len(SEVERITIES) - i} THEN '{s}'" for i, s in enumerate(SEVERITIES))
+    return f"""
+        WITH silver AS (
+            SELECT dataset, period, sha256, run_id, silver_rows, quarantine_rows, warned_rows
+            FROM silver_log WHERE status = 'processed'
+            QUALIFY row_number() OVER (
+                PARTITION BY dataset, period, sha256 ORDER BY logged_at DESC, run_id DESC) = 1
+        ),
+        check_run AS (
+            SELECT dataset, period, sha256, max(run_id) AS run_id
+            FROM dataset_check_results GROUP BY ALL
+        ),
+        checks AS (
+            SELECT r.dataset, r.period, r.sha256, r.run_id,
+                   count_if(r.status <> 'skipped') AS checks_run,
+                   count_if(r.status = 'fail') AS checks_failed,
+                   {", ".join(f"count_if(r.severity = '{s}') AS failed_{s}" for s in SEVERITIES)},
+                   max({_rank("r.severity")}) AS worst_check
+            FROM dataset_check_results r JOIN check_run USING (dataset, period, sha256, run_id)
+            GROUP BY ALL
+        ),
+        found AS (
+            SELECT i.dataset, e.period,
+                   count(DISTINCT e.incident_id) AS incidents_found,
+                   count_if(e.event = 'opened') AS incidents_opened,
+                   count(DISTINCT e.incident_id) FILTER (WHERE i.status <> 'RESOLVED')
+                       AS incidents_active,
+                   max({_rank("e.severity")}) AS worst_incident
+            FROM incident_events e JOIN incidents i USING (incident_id)
+            WHERE e.event IN ('opened', 'seen_again')
+            GROUP BY ALL
+        )
+        SELECT m.dataset, m.period, m.sha256, m.bronze_rows,
+               s.silver_rows, s.quarantine_rows, s.warned_rows,
+               round(100.0 * s.quarantine_rows / nullif(m.bronze_rows, 0), 4) AS quarantine_pct,
+               q.score,
+               coalesce(c.checks_run, 0)::BIGINT AS checks_run,
+               coalesce(c.checks_failed, 0)::BIGINT AS checks_failed,
+               {", ".join(f"coalesce(c.failed_{s}, 0)::BIGINT AS failed_{s}" for s in SEVERITIES)},
+               coalesce(f.incidents_found, 0)::BIGINT AS incidents_found,
+               coalesce(f.incidents_opened, 0)::BIGINT AS incidents_opened,
+               coalesce(f.incidents_active, 0)::BIGINT AS incidents_active,
+               CASE {worst} {names} END AS worst_severity,
+               CASE
+                   WHEN q.score IS NULL THEN 'not_scored'
+                   WHEN q.score < {critical_below} OR {worst} = {len(SEVERITIES)} THEN 'critical'
+                   WHEN q.score < {warning_below} OR {worst} >= {len(SEVERITIES) - 2}
+                       THEN 'warning'
+                   ELSE 'healthy'
+               END AS health,
+               s.run_id AS silver_run_id, c.run_id AS check_run_id
+        FROM gold_months m
+        LEFT JOIN silver s USING (dataset, period, sha256)
+        LEFT JOIN quality_scores q USING (dataset, period, sha256)
+        LEFT JOIN checks c USING (dataset, period, sha256)
+        LEFT JOIN found f USING (dataset, period)
+    """
+
+
+DATASET_HEALTH = GoldTable(
+    name="gold_dataset_health",
+    description="One row per dataset and month: rows, score, findings and a health label",
+    sql=dataset_health_sql,
+    order_by="dataset, period",
+    volatile=("silver_run_id", "check_run_id"),
+)
+
+TABLES: list[GoldTable] = [MONTHS, DATASET_HEALTH]  # in build order: later tables may read earlier
 
 
 def checksum(con: duckdb.DuckDBPyConnection, table: str, volatile: tuple[str, ...] = ()) -> str:
@@ -103,7 +188,7 @@ def build(
         for table in tables:
             con.execute(
                 f"CREATE OR REPLACE TABLE {table.name} AS "
-                f"SELECT * FROM ({table.sql}) ORDER BY {table.order_by}"
+                f"SELECT * FROM ({table.query()}) ORDER BY {table.order_by}"
             )
             rows = con.execute(f"SELECT count(*) FROM {table.name}").fetchone()[0]
             built.append(BuiltTable(table.name, rows, checksum(con, table.name, table.volatile)))

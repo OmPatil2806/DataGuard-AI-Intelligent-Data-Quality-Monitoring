@@ -135,6 +135,15 @@ rebuilt in full from the control tables, in one transaction: a failed build keep
 Gold. Each build is logged in `gold_build_log` with a checksum per table that leaves out run ids
 and timestamps, so two builds of the same data match.
 
+| Table | One row per | Holds |
+|---|---|---|
+| `gold_months` | dataset and month | The current Bronze file version |
+| `gold_dataset_health` | dataset and month | Rows in Silver and Quarantine, score, failed checks by severity, incidents, health label |
+
+The health label is `critical` below a score of 80 or with a critical finding, `warning` below 95
+or with a high or medium finding, otherwise `healthy` (limits in `configs/severity_weights.yml`,
+`health`). A month without Silver is `not_scored`.
+
 ## Profile the data
 
 Open `notebooks/01_data_profiling.ipynb` with the `.venv` kernel and run all cells. It reads

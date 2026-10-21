@@ -64,7 +64,7 @@ def test_build_is_logged_in_a_tracked_run(con):
     assert get_run(con, run_id)["dataset"] == "gold"
     log = gold.latest_build(con)
     assert log["run_id"].unique().tolist() == [run_id]
-    assert log["table_name"].tolist() == [t.name for t in gold.TABLES]
+    assert log["table_name"].tolist() == sorted(t.name for t in gold.TABLES)
     assert {b.name: b.rows for b in built} == dict(zip(log["table_name"], log["rows"], strict=True))
 
 
@@ -121,7 +121,11 @@ def test_main(dirs, capsys):
     ingest(dirs)
     assert gold.main(["--database", str(dirs["db"])]) == 0
     out = capsys.readouterr().out
-    assert "1 Gold table(s) built" in out and "gold_months" in out and "2 row(s)" in out
+    assert (
+        f"{len(gold.TABLES)} Gold table(s) built" in out
+        and "gold_months" in out
+        and "2 row(s)" in out
+    )
     assert gold.main(["--list"]) == 0
     assert "gold_months" in capsys.readouterr().out
 

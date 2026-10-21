@@ -353,4 +353,16 @@ def load_severity_weights(path: Path | None = None) -> dict[str, Any]:
         for result, value in scores.items():
             if isinstance(value, bool) or not isinstance(value, int | float) or not 0 <= value <= 1:
                 raise ConfigError(f"{path.name}: check_scores.{result} must be between 0 and 1")
+    health = data.get("health")
+    if health is not None:
+        limits = [
+            health.get(k) if isinstance(health, dict) else None
+            for k in ("critical_below", "warning_below")
+        ]
+        if any(isinstance(v, bool) or not isinstance(v, int | float) for v in limits) or not (
+            0 < limits[0] <= limits[1] <= 100
+        ):
+            raise ConfigError(
+                f"{path.name}: health needs 0 < critical_below <= warning_below <= 100"
+            )
     return data

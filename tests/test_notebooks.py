@@ -105,29 +105,9 @@ def test_baselines_and_drift_notebook_runs(tmp_path, monkeypatch):
 
 def test_quality_score_notebook_runs(tmp_path, monkeypatch):
     """The five planted months through Silver, checks, rules, incidents and the score."""
-    import duckdb
-    from test_run_checks import FIXTURE, MONTHS
+    from pipeline_fixture import run_pipeline
 
-    from incidents import incidents_cli
-    from ingestion import ingest_data
-    from quality import run_checks, run_rules, score
-    from silver import process_silver
-
-    incoming = tmp_path / "incoming"
-    incoming.mkdir()
-    for period, query in MONTHS.items():
-        target = incoming / f"yellow_tripdata_{period}.parquet"
-        duckdb.sql(f"COPY ({query.format(src=FIXTURE)}) TO '{target}' (FORMAT parquet)")
-    shutil.copy(FIXTURES / "taxi_zone_lookup_fixture.csv", incoming / "taxi_zone_lookup.csv")
-    common = ["--database", str(tmp_path / "dataguard.duckdb")]
-    bronze = ["--source", str(incoming), "--bronze", str(tmp_path / "bronze")]
-    assert ingest_data.main(["--months", "2023-01:2023-05", *bronze, *common]) == 0
-    silver = ["--silver", str(tmp_path / "silver"), "--quarantine", str(tmp_path / "quarantine")]
-    assert process_silver.main(["--lookups", str(incoming), *silver, *common]) == 0
-    assert run_checks.main(common) == 0
-    assert run_rules.main(["--lookups", str(incoming), *common]) == 0
-    assert incidents_cli.main([*common, "update"]) == 0
-    assert score.main(common) == 0
+    run_pipeline(tmp_path)
 
     monkeypatch.setenv("DATAGUARD_DATABASE", str(tmp_path / "dataguard.duckdb"))
     path = REPO_ROOT / "notebooks" / "04_quality_score_calibration.ipynb"
