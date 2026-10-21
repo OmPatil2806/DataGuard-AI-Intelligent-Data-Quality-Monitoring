@@ -139,6 +139,7 @@ and timestamps, so two builds of the same data match.
 |---|---|---|
 | `gold_months` | dataset and month | The current Bronze file version |
 | `gold_dataset_health` | dataset and month | Rows in Silver and Quarantine, score, failed checks by severity, incidents, health label |
+| `gold_trends` | dataset, month, metric and item | Rows per day, Quarantine and warned rate, score, NULL rate per column, PSI per column, failure rate per rule; with the baseline, the change and the previous month |
 
 The health label is `critical` below a score of 80 or with a critical finding, `warning` below 95
 or with a high or medium finding, otherwise `healthy` (limits in `configs/severity_weights.yml`,

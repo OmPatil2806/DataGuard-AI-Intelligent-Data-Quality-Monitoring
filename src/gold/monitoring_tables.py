@@ -158,7 +158,89 @@ DATASET_HEALTH = GoldTable(
     volatile=("silver_run_id", "check_run_id"),
 )
 
-TABLES: list[GoldTable] = [MONTHS, DATASET_HEALTH]  # in build order: later tables may read earlier
+# Long format: one row per dataset, month, metric and item (a column, a rule id, or '').
+# baseline and change only where a dataset check compared the month with one; change is
+# value - baseline and only filled for a trusted baseline (as the checks use it). previous is
+# the value of the month before in the table (months can be far apart, as 2019-01 and 2023-01).
+TRENDS = GoldTable(
+    name="gold_trends",
+    description="Metrics per month next to their baseline: rows, rates, score, NULLs, PSI, rules",
+    sql="""
+        WITH h AS (SELECT * FROM gold_dataset_health),
+        metric AS (
+            SELECT h.dataset, h.period, d.metric, d.column_name AS item, d.value
+            FROM h JOIN dataset_metrics d USING (dataset, period, sha256)
+            WHERE d.metric IN ('rows_per_day', 'null_rate')
+        ),
+        base AS (
+            SELECT b.dataset, b.period, b.metric, b.column_name AS item, b.value, b.trusted
+            FROM h JOIN baselines b
+              ON b.run_id = h.check_run_id AND b.dataset = h.dataset AND b.period = h.period
+            WHERE b.metric IN ('rows_per_day', 'null_rate')
+        ),
+        check_of AS (
+            SELECT h.dataset, h.period, r."check", r.column_name, r.status, r.severity, r.observed
+            FROM h JOIN dataset_check_results r
+              ON r.run_id = h.check_run_id AND r.dataset = h.dataset AND r.period = h.period
+              AND r.sha256 = h.sha256
+        ),
+        checked AS (
+            SELECT m.dataset, m.period, m.metric, m.item, m.value,
+                   b.value AS baseline, b.trusted AS baseline_trusted,
+                   c.status AS check_status, c.severity
+            FROM metric m
+            LEFT JOIN base b USING (dataset, period, metric, item)
+            LEFT JOIN check_of c
+              ON c.dataset = m.dataset AND c.period = m.period AND c.column_name = m.item
+              AND c."check" = CASE m.metric WHEN 'rows_per_day' THEN 'volume' ELSE 'null_rate' END
+            UNION ALL
+            SELECT dataset, period, 'psi', column_name,
+                   CAST(regexp_extract(observed, '^PSI ([0-9.]+)', 1) AS DOUBLE),
+                   NULL, NULL, status, severity
+            FROM check_of WHERE "check" = 'drift' AND status <> 'skipped'
+        ),
+        rule_run AS (
+            SELECT l.* FROM h JOIN rule_run_log l USING (dataset, period, sha256)
+            QUALIFY dense_rank() OVER (PARTITION BY l.dataset, l.period ORDER BY l.run_id DESC) = 1
+        ),
+        derived AS (
+            SELECT dataset, period, 'quarantine_rate' AS metric, '' AS item,
+                   quarantine_rows / nullif(bronze_rows, 0) AS value
+            FROM h WHERE silver_rows IS NOT NULL
+            UNION ALL
+            SELECT dataset, period, 'warned_rate', '', warned_rows / nullif(bronze_rows, 0)
+            FROM h WHERE silver_rows IS NOT NULL
+            UNION ALL
+            SELECT dataset, period, 'score', '', score FROM h WHERE score IS NOT NULL
+            UNION ALL
+            SELECT dataset, period, 'rule_failure_rate', rule_id,
+                   rows_failed / nullif(rows_checked, 0)
+            FROM rule_run
+        ),
+        rows AS (
+            SELECT * FROM checked
+            UNION ALL BY NAME
+            SELECT *, NULL::DOUBLE AS baseline, NULL::BOOLEAN AS baseline_trusted,
+                   NULL::VARCHAR AS check_status, NULL::VARCHAR AS severity
+            FROM derived
+        )
+        SELECT dataset, period, metric, item,
+               CASE metric WHEN 'rows_per_day' THEN 'rows/day' WHEN 'score' THEN 'score'
+                           WHEN 'psi' THEN 'psi' ELSE 'share' END AS unit,
+               value, baseline, baseline_trusted,
+               CASE WHEN baseline_trusted THEN value - baseline END AS change,
+               lag(value) OVER (PARTITION BY dataset, metric, item ORDER BY period) AS previous,
+               check_status, severity
+        FROM rows
+    """,
+    order_by="dataset, metric, item, period",
+)
+
+TABLES: list[GoldTable] = [
+    MONTHS,
+    DATASET_HEALTH,
+    TRENDS,
+]  # in build order: later tables may read earlier
 
 
 def checksum(con: duckdb.DuckDBPyConnection, table: str, volatile: tuple[str, ...] = ()) -> str:
