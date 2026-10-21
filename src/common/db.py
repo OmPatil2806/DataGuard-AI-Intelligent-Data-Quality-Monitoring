@@ -19,10 +19,22 @@ if __package__ in (None, ""):
 
 from common.config import load_datasets_config  # noqa: E402
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 RUN_STATUSES = ("RUNNING", "SUCCESS", "WARNING", "FAILED")
 FILE_STATUSES = ("REGISTERED", "LOADED", "SKIPPED", "FAILED")
+SEVERITY_LEVELS = ("critical", "high", "medium", "low")
+INCIDENT_SOURCES = ("row_rule", "dataset_check")
+INCIDENT_STATUSES = ("OPEN", "INVESTIGATING", "RESOLVED")
+INCIDENT_EVENTS = (
+    "opened",  # a new incident
+    "seen_again",  # the same problem failed again (de-duplicated)
+    "clean",  # a run in which the problem did not occur
+    "investigating",  # someone is working on it
+    "reopened",  # back to OPEN from INVESTIGATING
+    "resolved",  # closed after enough clean runs, or by hand
+    "note",  # free text
+)
 
 
 def _in(values: tuple[str, ...]) -> str:
@@ -178,6 +190,50 @@ SCHEMA = [
         PRIMARY KEY (run_id, dataset, period),
         CHECK (silver_rows + quarantine_rows = rows),
         CHECK (warned_rows <= silver_rows)
+    )
+    """,
+    # Schema version 8: incidents (Phase 4). One row per incident; at most one incident per
+    # (dataset, source, rule_id, column_name) is not RESOLVED (enforced in incident_manager).
+    f"""
+    CREATE TABLE IF NOT EXISTS incidents (
+        incident_id         VARCHAR PRIMARY KEY,     -- INC-0001, INC-0002, ...
+        dataset             VARCHAR NOT NULL,
+        source              VARCHAR NOT NULL CHECK (source IN {_in(INCIDENT_SOURCES)}),
+        rule_id             VARCHAR NOT NULL,        -- row rule id or dataset check name
+        column_name         VARCHAR NOT NULL DEFAULT '',
+        title               VARCHAR NOT NULL,
+        severity            VARCHAR NOT NULL CHECK (severity IN {_in(SEVERITY_LEVELS)}),
+        status              VARCHAR NOT NULL CHECK (status IN {_in(INCIDENT_STATUSES)}),
+        first_seen_period   VARCHAR NOT NULL,
+        last_seen_period    VARCHAR NOT NULL,
+        first_seen_run      VARCHAR NOT NULL,
+        last_seen_run       VARCHAR NOT NULL,
+        occurrences         INTEGER NOT NULL DEFAULT 1 CHECK (occurrences >= 1),
+        clean_streak        INTEGER NOT NULL DEFAULT 0 CHECK (clean_streak >= 0),
+        latest_observed     VARCHAR,
+        latest_expected     VARCHAR,
+        latest_detail       VARCHAR,
+        recurrence_of       VARCHAR,                 -- earlier incident of the same problem
+        opened_at           TIMESTAMP NOT NULL,
+        updated_at          TIMESTAMP NOT NULL,
+        resolved_at         TIMESTAMP,
+        resolved_period     VARCHAR,
+        CHECK ((status = 'RESOLVED') = (resolved_at IS NOT NULL))
+    )
+    """,
+    # Every change to an incident, in order: the incident's history.
+    f"""
+    CREATE TABLE IF NOT EXISTS incident_events (
+        incident_id   VARCHAR NOT NULL,
+        seq           INTEGER NOT NULL,              -- 1, 2, 3, ... per incident
+        event         VARCHAR NOT NULL CHECK (event IN {_in(INCIDENT_EVENTS)}),
+        period        VARCHAR,
+        run_id        VARCHAR,
+        severity      VARCHAR,
+        status_after  VARCHAR NOT NULL,
+        detail        VARCHAR,
+        created_at    TIMESTAMP NOT NULL,
+        PRIMARY KEY (incident_id, seq)
     )
     """,
 ]
