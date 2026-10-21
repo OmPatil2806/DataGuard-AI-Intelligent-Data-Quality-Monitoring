@@ -162,6 +162,19 @@ position in the source file, `bronze_row_id`):
 python src/gold/lineage.py --period 2023-01 --row 42
 ```
 
+## Fault injection
+
+```bash
+python src/evaluation/fault_injector.py --list                # the planned experiments
+```
+
+Phase 6 measures what the pipeline catches. Each experiment breaks a copy of one clean month
+(`target_month` in `configs/faults.yml`) in one known way, at one strength, and records the
+ground truth in `fault_manifest.json`: which rows were broken or removed and which detectors
+should fire. A control experiment keeps the month unbroken. Experiments run in their own
+folders under `data/evaluation/`, never in the real pipeline's database. The same seed always
+gives the same sample and the same broken rows.
+
 ## Profile the data
 
 Open `notebooks/01_data_profiling.ipynb` with the `.venv` kernel and run all cells. It reads

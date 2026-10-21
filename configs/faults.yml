@@ -1,0 +1,100 @@
+# Fault injection and detection evaluation (Phase 6).
+#
+# Every experiment breaks a copy of one clean month (target_month) in one known way, runs the
+# whole pipeline on it after a clean history, and compares the findings with what was broken.
+# A control experiment runs the same month unbroken, so findings the month raises on its own
+# are never counted as detections. Experiments run in their own folders under `workspace`
+# (data/ is ignored by Git); the real pipeline's database and files are never touched.
+
+dataset: yellow_taxi
+target_month: "2023-06"
+history: {start: "2023-01", end: "2023-05"}   # gives the target month a trusted baseline
+
+# Share of each month's rows used, the same rows in every experiment (1.0 = every row).
+# 0.1 keeps 30+ experiments on the full data to minutes instead of hours.
+sample_fraction: 0.1
+seed: 42                    # same sample, same broken rows, every time
+workspace: data/evaluation
+
+# Default strengths by kind: share of the rows broken, or days a file is late.
+strengths:
+  share: [0.01, 0.05, 0.20]
+  days: [1, 5, 20]
+
+# kind:            share | days | none (one experiment, no strength)
+# extra_strengths: added where every default strength is below a check's deliberate limit,
+#                  so the evaluation also shows the check catching its fault
+# expect:          detectors that should fire: a row rule id or a dataset check
+#                  (schema, volume, freshness, null_rate, drift), with column for per-column checks
+faults:
+  missing_column:
+    category: schema
+    kind: none
+    description: "A required column is not delivered"
+    params: {column: passenger_count}
+    expect: [{check: schema}]
+
+  null_spike:
+    category: completeness
+    kind: share
+    description: "fare_amount is empty in a share of rows"
+    params: {column: fare_amount}
+    expect: [{check: null_rate, column: fare_amount}]
+
+  duplicate_rows:
+    category: uniqueness
+    kind: share
+    description: "A share of rows is delivered twice"
+    params: {}
+    expect: [{rule: trip_unique}]
+
+  out_of_range:
+    category: validity
+    kind: share
+    description: "fare_amount is negative in a share of rows"
+    params: {column: fare_amount}
+    expect: [{rule: fare_not_negative}]
+
+  orphan_location:
+    category: referential
+    kind: share
+    description: "PULocationID points to a zone that does not exist"
+    params: {column: PULocationID, value: 999}
+    expect: [{rule: pickup_zone_known}]
+
+  unit_change:
+    category: drift
+    kind: share
+    extra_strengths: [1.0]
+    description: "trip_distance delivered in kilometres instead of miles for a share of rows"
+    params: {column: trip_distance, factor: 1.609344}
+    expect: [{check: drift, column: trip_distance}]
+
+  volume_drop:
+    category: volume
+    kind: share
+    extra_strengths: [0.5]
+    description: "A share of the month's rows is missing"
+    params: {}
+    expect: [{check: volume}]
+
+  stale_file:
+    category: freshness
+    kind: days
+    description: "The file arrives late"
+    params: {}
+    expect: [{check: freshness}]
+
+  pickup_outside_month:
+    category: pattern
+    kind: share
+    description: "Pickup times moved to the previous month for a share of rows"
+    params: {}
+    expect: [{rule: pickup_in_file_month}]
+
+  swapped_times:
+    category: consistency
+    kind: share
+    description: "Pickup and dropoff times swapped for a share of rows"
+    params: {}
+    expect: [{rule: dropoff_not_before_pickup}]
