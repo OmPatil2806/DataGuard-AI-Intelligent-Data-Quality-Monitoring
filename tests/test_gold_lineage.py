@@ -42,14 +42,25 @@ def broken(pipeline_db, tmp_path):
     root = tmp_path / "copy"
     shutil.copytree(pipeline_db.parent, root)
     database = root / pipeline_db.name
-    old, new = str(pipeline_db.parent), str(root)
-    with db.connect(database) as con:  # point the copy's control tables at the copied files
-        con.execute("UPDATE file_manifest SET bronze_path = replace(bronze_path, ?, ?)", [old, new])
-        con.execute(
-            "UPDATE silver_log SET silver_path = replace(silver_path, ?, ?), "
-            "quarantine_path = replace(quarantine_path, ?, ?)",
-            [old, new, old, new],
-        )
+    # Point the copy's control tables at the copied files. Paths are stored with forward
+    # slashes (as_posix), also on Windows, so replace that form and the native one.
+    source = pipeline_db.parent.resolve()
+    with db.connect(database) as con:
+        for old, new in {(source.as_posix(), root.resolve().as_posix()), (str(source), str(root))}:
+            con.execute(
+                "UPDATE file_manifest SET bronze_path = replace(bronze_path, ?, ?)", [old, new]
+            )
+            con.execute(
+                "UPDATE silver_log SET silver_path = replace(silver_path, ?, ?), "
+                "quarantine_path = replace(quarantine_path, ?, ?)",
+                [old, new, old, new],
+            )
+        paths = con.execute(
+            "SELECT bronze_path FROM file_manifest UNION ALL "
+            "SELECT silver_path FROM silver_log UNION ALL SELECT quarantine_path FROM silver_log"
+        ).fetchall()
+    # never let a test damage the shared pipeline's files
+    assert all(Path(p).resolve().is_relative_to(root.resolve()) for (p,) in paths), paths
     return database
 
 
