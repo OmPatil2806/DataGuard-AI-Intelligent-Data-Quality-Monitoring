@@ -142,6 +142,8 @@ and timestamps, so two builds of the same data match.
 | `gold_trends` | dataset, month, metric and item | Rows per day, Quarantine and warned rate, score, NULL rate per column, PSI per column, failure rate per rule; with the baseline, the change and the previous month |
 | `gold_schema_history` | dataset, month and column | Name, position and type as delivered, and the change to the previous month (same rules as the schema check) |
 | `gold_column_profile` | dataset, month and column | NULL share, mean, median, p99, rows per drift bin and PSI, with the check results |
+| `gold_incident_summary` | incident | Status, severity, months seen, active and until resolved, how it was resolved, recurrence chain, investigation and notes |
+| `gold_incident_monthly` | dataset and month | Incidents opened, recurring, seen and resolved, and active at the end of the month by severity |
 
 The health label is `critical` below a score of 80 or with a critical finding, `warning` below 95
 or with a high or medium finding, otherwise `healthy` (limits in `configs/severity_weights.yml`,

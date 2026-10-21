@@ -369,8 +369,144 @@ COLUMN_PROFILE = GoldTable(
     order_by="dataset, column_name, period",
 )
 
+
+def _month_number(column: str) -> str:
+    """YYYY-MM as a month count, so months can be subtracted."""
+    return (
+        f"(CAST(substr({column}, 1, 4) AS INTEGER) * 12 + CAST(substr({column}, 6, 2) AS INTEGER))"
+    )
+
+
+# Shared by both incident tables: when an incident stopped being active. The lifecycle stores
+# the month it resolved an incident in; an incident resolved by hand has no month, so it counts
+# as resolved in the month of its last lifecycle event.
+_RESOLVED = """
+    last_event AS (
+        SELECT incident_id, max(period) AS period FROM incident_events GROUP BY ALL
+    ),
+    resolved AS (
+        SELECT i.incident_id,
+               CASE WHEN i.status = 'RESOLVED'
+                    THEN coalesce(i.resolved_period, l.period) END AS resolved_month,
+               CASE WHEN i.status <> 'RESOLVED' THEN NULL
+                    WHEN i.resolved_period IS NOT NULL THEN 'lifecycle' ELSE 'hand' END
+                   AS resolved_by
+        FROM incidents i LEFT JOIN last_event l USING (incident_id)
+    )
+"""
+
+INCIDENT_SUMMARY = GoldTable(
+    name="gold_incident_summary",
+    description="One row per incident: status, how long it lasted, its history and recurrences",
+    sql=lambda con: (
+        f"""
+        WITH RECURSIVE chain (incident_id, chain_root, chain_position) AS (
+            SELECT incident_id, incident_id, 1 FROM incidents WHERE recurrence_of IS NULL
+            UNION ALL
+            SELECT i.incident_id, c.chain_root, c.chain_position + 1
+            FROM incidents i JOIN chain c ON i.recurrence_of = c.incident_id
+        ),
+        {_RESOLVED},
+        latest AS (SELECT dataset, max(period) AS period FROM gold_months GROUP BY ALL),
+        history AS (
+            SELECT incident_id,
+                   count(*) AS events,
+                   count_if(event = 'investigating') > 0 AS investigated,
+                   count_if(event = 'note') AS notes
+            FROM incident_events GROUP BY ALL
+        )
+        SELECT i.incident_id, i.dataset, i.source, i.rule_id, i.column_name, i.title,
+               i.severity, i.status, i.first_seen_period, i.last_seen_period,
+               r.resolved_month AS resolved_period, r.resolved_by,
+               i.occurrences AS months_seen,
+               {_month_number("coalesce(r.resolved_month, l.period, i.last_seen_period)")}
+                   - {_month_number("i.first_seen_period")} + 1 AS months_active,
+               {_month_number("r.resolved_month")} - {_month_number("i.first_seen_period")}
+                   AS months_to_resolve,
+               i.clean_streak, i.recurrence_of, c.chain_root, c.chain_position,
+               coalesce(h.investigated, false) AS investigated,
+               coalesce(h.notes, 0)::BIGINT AS notes, coalesce(h.events, 0)::BIGINT AS events,
+               i.latest_observed, i.latest_expected, i.latest_detail
+        FROM incidents i
+        JOIN resolved r USING (incident_id)
+        LEFT JOIN chain c USING (incident_id)
+        LEFT JOIN latest l USING (dataset)
+        LEFT JOIN history h USING (incident_id)
+    """
+    ),
+    order_by="incident_id",
+)
+
+INCIDENT_MONTHLY = GoldTable(
+    name="gold_incident_monthly",
+    description="Per dataset and month: incidents opened, seen, resolved and active by severity",
+    sql=lambda con: (
+        f"""
+        WITH {_RESOLVED},
+        span AS (
+            SELECT i.incident_id, i.dataset, i.first_seen_period, r.resolved_month
+            FROM incidents i JOIN resolved r USING (incident_id)
+        ),
+        severity_by AS (  -- severity an incident had reached by each month (it only rises)
+            SELECT m.dataset, m.period, s.incident_id,
+                   max({_rank("e.severity")}) AS rank
+            FROM gold_months m
+            JOIN span s ON s.dataset = m.dataset AND s.first_seen_period <= m.period
+                AND (s.resolved_month IS NULL OR s.resolved_month > m.period)
+            JOIN incident_events e
+              ON e.incident_id = s.incident_id AND e.period <= m.period
+            GROUP BY ALL
+        ),
+        active AS (
+            SELECT dataset, period, count(*) AS active_end,
+                   {
+            ", ".join(
+                f"count_if(rank = {len(SEVERITIES) - i}) AS active_{s}"
+                for i, s in enumerate(SEVERITIES)
+            )
+        }
+            FROM severity_by GROUP BY ALL
+        ),
+        moved AS (
+            SELECT i.dataset, e.period,
+                   count_if(e.event = 'opened') AS opened,
+                   count_if(e.event = 'opened' AND i.recurrence_of IS NOT NULL) AS recurrences,
+                   count(DISTINCT e.incident_id)
+                       FILTER (WHERE e.event IN ('opened', 'seen_again')) AS seen
+            FROM incident_events e JOIN incidents i USING (incident_id)
+            WHERE e.period IS NOT NULL
+            GROUP BY ALL
+        ),
+        closed AS (
+            SELECT dataset, resolved_month AS period, count(*) AS resolved
+            FROM span WHERE resolved_month IS NOT NULL GROUP BY ALL
+        )
+        SELECT m.dataset, m.period,
+               coalesce(o.opened, 0)::BIGINT AS opened,
+               coalesce(o.recurrences, 0)::BIGINT AS recurrences,
+               coalesce(o.seen, 0)::BIGINT AS seen,
+               coalesce(c.resolved, 0)::BIGINT AS resolved,
+               coalesce(a.active_end, 0)::BIGINT AS active_end,
+               {", ".join(f"coalesce(a.active_{s}, 0)::BIGINT AS active_{s}" for s in SEVERITIES)}
+        FROM gold_months m
+        LEFT JOIN moved o USING (dataset, period)
+        LEFT JOIN closed c USING (dataset, period)
+        LEFT JOIN active a USING (dataset, period)
+    """
+    ),
+    order_by="dataset, period",
+)
+
 # In build order: later tables may read earlier ones.
-TABLES: list[GoldTable] = [MONTHS, DATASET_HEALTH, TRENDS, SCHEMA_HISTORY, COLUMN_PROFILE]
+TABLES: list[GoldTable] = [
+    MONTHS,
+    DATASET_HEALTH,
+    TRENDS,
+    SCHEMA_HISTORY,
+    COLUMN_PROFILE,
+    INCIDENT_SUMMARY,
+    INCIDENT_MONTHLY,
+]
 
 
 def checksum(con: duckdb.DuckDBPyConnection, table: str, volatile: tuple[str, ...] = ()) -> str:
