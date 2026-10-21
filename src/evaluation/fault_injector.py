@@ -16,10 +16,9 @@ row's position in the broken file is its bronze_row_id once loaded. Everything i
 deterministic: the sample depends on the seed only, the broken rows on the seed and the
 experiment, so the same config always gives the same files.
 
-A fault is a function registered with @fault("name"). It gets the sampled rows as a pandas
-frame (pyarrow types, so NULLs and timestamps survive) and returns a FaultResult. Phase 6.2
-adds the ten faults; `control` (nothing broken) is the baseline every experiment is compared
-with.
+A fault is a function registered with @fault("name") in evaluation/faults.py. It gets the
+sampled rows as a pandas frame (pyarrow types, so NULLs and timestamps survive) and returns a
+FaultResult. `control` (nothing broken) is the baseline every experiment is compared with.
 """
 
 from __future__ import annotations
@@ -29,8 +28,7 @@ import hashlib
 import json
 import sys
 import zlib
-from collections.abc import Callable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -54,6 +52,7 @@ from common.config import (  # noqa: E402
     load_datasets_config,
     load_yaml,
 )
+from evaluation.faults import FAULTS, FaultResult, choose, fault  # noqa: E402, F401
 from quality.rules import load_rules  # noqa: E402
 
 KINDS = ("share", "days", "none")
@@ -250,59 +249,8 @@ def rng_for(config: FaultsConfig, exp_id: str) -> np.random.Generator:
     return np.random.default_rng([config.seed, zlib.crc32(exp_id.encode())])
 
 
-def choose(
-    eligible: np.ndarray | pd.Index | list[int], share: float, rng: np.random.Generator
-) -> np.ndarray:
-    """round(share x eligible) of the eligible positions (at least one), sorted."""
-    eligible = np.asarray(eligible)
-    if len(eligible) == 0 or share <= 0:
-        return np.array([], dtype=int)
-    count = min(len(eligible), max(1, round(share * len(eligible))))
-    return np.sort(rng.choice(eligible, size=count, replace=False))
-
-
 # --- faults ------------------------------------------------------------------------------
-
-
-@dataclass
-class FaultResult:
-    """What a fault produced.
-
-    frame         the broken rows, in output order (pyarrow-backed pandas frame)
-    affected      0-based positions *in frame* of the rows the fault changed or added
-    removed       0-based positions *in the sampled input* of rows the fault dropped
-    month_level   the fault concerns the whole month (schema, delivery), not single rows
-    delivery_delay_days  for a late file: days after expected_at it counts as delivered
-    """
-
-    frame: pd.DataFrame
-    affected: list[int] = field(default_factory=list)
-    removed: list[int] = field(default_factory=list)
-    month_level: bool = False
-    delivery_delay_days: float | None = None
-    note: str = ""
-
-
-FaultFunction = Callable[
-    [pd.DataFrame, float | None, dict[str, Any], np.random.Generator], FaultResult
-]
-FAULTS: dict[str, FaultFunction] = {}
-
-
-def fault(name: str) -> Callable[[FaultFunction], FaultFunction]:
-    def register(function: FaultFunction) -> FaultFunction:
-        if name in FAULTS:
-            raise ValueError(f"fault '{name}' is registered twice")
-        FAULTS[name] = function
-        return function
-
-    return register
-
-
-@fault(CONTROL)
-def _control(frame, strength, params, rng):
-    return FaultResult(frame, note="nothing broken")
-
+# The fault functions and their registry live in evaluation/faults.py.
 
 # --- injection ---------------------------------------------------------------------------
 

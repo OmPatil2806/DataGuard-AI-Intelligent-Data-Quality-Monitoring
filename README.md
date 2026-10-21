@@ -175,6 +175,10 @@ should fire. A control experiment keeps the month unbroken. Experiments run in t
 folders under `data/evaluation/`, never in the real pipeline's database. The same seed always
 gives the same sample and the same broken rows.
 
+The ten faults (`src/evaluation/faults.py`), one per check category: missing column, NULL
+spike, duplicate rows, out-of-range fares, orphan location IDs, distances in kilometres, volume
+drop, late file, pickups moved into the previous month, and swapped pickup and dropoff times.
+
 ## Profile the data
 
 Open `notebooks/01_data_profiling.ipynb` with the `.venv` kernel and run all cells. It reads
