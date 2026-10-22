@@ -10,6 +10,10 @@ pyarrow>=17
 pandera>=0.20,<1
 scipy>=1.13,<2
 
+# Anomaly detection (Phase 7)
+scikit-learn>=1.5,<2
+joblib>=1.4
+
 # Configuration and downloads
 pyyaml>=6.0,<7
 requests>=2.32,<3

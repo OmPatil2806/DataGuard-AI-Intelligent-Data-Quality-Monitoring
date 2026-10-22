@@ -1,0 +1,64 @@
+# ML anomaly detection (Phase 7).
+#
+# An Isolation Forest learns what normal Silver trips look like and scores every row by how
+# unusual the combination of its values is. Rules catch values that are wrong on their own;
+# the model is for rows whose values are each plausible but do not fit together. Flags are
+# warnings only: flagged rows stay in Silver.
+
+dataset: yellow_taxi
+
+# One feature per entry: SQL over a Silver row (standard columns and Silver's derived columns).
+# A division by zero gives NULL (nullif); NULLs are filled with the training medians.
+features:
+  trip_duration_min: "trip_duration_min"
+  trip_distance: "trip_distance"
+  speed_mph: "trip_distance / nullif(trip_duration_min / 60.0, 0)"
+  fare_per_mile: "fare_amount / nullif(trip_distance, 0)"
+  fare_per_minute: "fare_amount / nullif(trip_duration_min, 0)"
+  # total minus the sum of its parts; open item O1 decides whether this should be 0
+  total_gap: >-
+    total_amount - (coalesce(fare_amount, 0) + coalesce(extra, 0) + coalesce(mta_tax, 0)
+    + coalesce(tip_amount, 0) + coalesce(tolls_amount, 0) + coalesce(improvement_surcharge, 0)
+    + coalesce(congestion_surcharge, 0) + coalesce(airport_fee, 0))
+  pickup_hour: "pickup_hour"
+  pickup_weekday: "isodow(tpep_pickup_datetime)"
+  passenger_count: "passenger_count"
+
+# Time-based split: learn from the train months, set the threshold on the calibration month
+# (a clean month after them), and judge the model on the months after that.
+months:
+  train: {start: "2023-01", end: "2023-03"}
+  calibrate: "2023-04"
+
+training:
+  rows_per_month: 100000      # random rows per train month (all rows when a month has fewer)
+  seed: 42
+
+model:                        # scikit-learn IsolationForest
+  n_estimators: 200
+  max_samples: 256
+  max_features: 1.0
+
+# The threshold is the anomaly score above which this share of the calibration month's rows
+# lies: a clean month flags about this share, so a rise means something.
+threshold:
+  target_flag_rate: 0.01
+
+explain:
+  top_features: 3             # per flagged row, the features furthest from their training median
+
+# A month becomes an incident when its flag rate rises above its own baseline (the median of
+# the earlier months, as for the row rules): by more than max(min_increase,
+# relative_increase x baseline); before three earlier months, above cold_start_max_rate.
+incidents:
+  min_increase: 0.005
+  relative_increase: 1.0
+  cold_start_max_rate: 0.03
+  severity: medium
+
+# Retraining is by hand (python src/ml/train.py). Scoring warns when the model is older than
+# this many months than the month it scores, or when the Silver versions it learnt from changed.
+retrain:
+  max_age_months: 12
+
+models_dir: models

@@ -3,6 +3,9 @@ data/
 *.duckdb
 *.duckdb.wal
 
+# Trained models (Phase 7): rebuilt with python src/ml/train.py
+models/
+
 # Secrets
 .env
 

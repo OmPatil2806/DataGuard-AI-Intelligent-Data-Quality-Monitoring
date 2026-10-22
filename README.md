@@ -202,6 +202,18 @@ The ten faults (`src/evaluation/faults.py`), one per check category: missing col
 spike, duplicate rows, out-of-range fares, orphan location IDs, distances in kilometres, volume
 drop, late file, pickups moved into the previous month, and swapped pickup and dropoff times.
 
+## ML anomaly detection
+
+```bash
+python src/ml/features.py --period 2023-01                    # the model's features for a month
+```
+
+Phase 7 adds an Isolation Forest for trips whose values are each plausible but do not fit
+together (a high fare for a short trip, a long trip in a few minutes). Its features are SQL
+expressions over Silver in `configs/ml.yml`: trip duration, distance, speed, fare per mile and
+per minute, total minus the sum of its parts, pickup hour and weekday, passenger count. Models
+are saved to `models/` (ignored by Git).
+
 ## Profile the data
 
 Open `notebooks/01_data_profiling.ipynb` with the `.venv` kernel and run all cells. It reads
