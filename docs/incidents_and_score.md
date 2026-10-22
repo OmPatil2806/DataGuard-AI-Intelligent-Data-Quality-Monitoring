@@ -74,7 +74,8 @@ score = 100 x sum(w_i x p_i) / sum(w_i)
 | Row categories (completeness, uniqueness, validity, pattern, referential, consistency) | Share of the month's rows (Silver + Quarantine) that fail no enabled rule of the category |
 | Dataset checks (schema, volume, freshness, drift) | `check_scores` of the worst result: pass 1.0, low 0.75, medium 0.5, high 0.25, critical 0 |
 | Completeness | The lower of the row pass rate and the null_rate check |
-| No result (a skipped check, no rule, ml_anomaly before Phase 7) | Left out of both sums |
+| ml_anomaly (Phase 7) | Share of the month's Silver rows the anomaly model did not flag |
+| No result (a skipped check, no rule, no trained model) | Left out of both sums |
 
 Weights and check scores are in `configs/severity_weights.yml`: schema 5, volume 4,
 completeness, validity, freshness and drift 3, the rest 2, ml_anomaly 1. Scores are stored per

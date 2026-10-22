@@ -77,10 +77,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dataset", default="yellow_taxi", help="dataset name")
     sub = parser.add_subparsers(dest="command", required=True)
     update = sub.add_parser(
-        "update", help="apply the latest dataset check run and the latest row rule run"
+        "update", help="apply the latest check run, row rule run and anomaly scoring run"
     )
     update.add_argument("--check-run", help="run id of a run_checks.py run (default: latest)")
     update.add_argument("--rule-run", help="run id of a run_rules.py run (default: latest)")
+    update.add_argument("--ml-run", help="run id of an ml/score.py run (default: latest)")
     listing = sub.add_parser("list", help="list incidents")
     listing.add_argument("--all", action="store_true", help="include resolved incidents")
     sub.add_parser("show", help="details and history").add_argument("incident")
@@ -100,14 +101,21 @@ def main(argv: list[str] | None = None) -> int:
                         args.check_run,
                         lifecycle.apply_check_run,
                         "checks",
-                        "run_checks.py",
+                        "src/quality/run_checks.py",
                     ),
                     (
                         "rule_run_log",
                         args.rule_run,
                         lifecycle.apply_rule_run,
                         "rules",
-                        "run_rules.py",
+                        "src/quality/run_rules.py",
+                    ),
+                    (
+                        "ml_month_summary",
+                        args.ml_run,
+                        lifecycle.apply_ml_run,
+                        "ml",
+                        "src/ml/score.py",
                     ),
                 ]
                 applied = 0
@@ -119,7 +127,7 @@ def main(argv: list[str] | None = None) -> int:
                         ).fetchone()[0]
                     )
                     if not run_id:
-                        print(f"{label}: no run found (run python src/quality/{command})")
+                        print(f"{label}: no run found (run python {command})")
                         continue
                     r = apply(con, run_id, args.dataset)
                     applied += 1

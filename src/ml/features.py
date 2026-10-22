@@ -11,6 +11,7 @@ be computed (a division by zero) is NULL here; training fills NULLs with the tra
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 from dataclasses import dataclass
@@ -40,6 +41,7 @@ from ingestion.bronze_loader import read_bronze_sql  # noqa: E402
 
 NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 KEY = "bronze_row_id"
+MODELS_DIR_ENV = "DATAGUARD_MODELS_DIR"
 
 
 @dataclass(frozen=True)
@@ -139,8 +141,18 @@ def load_ml_config(path: Path | None = None) -> MLConfig:
             _require(_require(data, "retrain", where), "max_age_months", f"{where} retrain"),
             f"{where} retrain.max_age_months",
         ),
-        models_dir=models_dir if models_dir.is_absolute() else REPO_ROOT / models_dir,
+        models_dir=_models_dir(models_dir),
     )
+
+
+def _models_dir(configured: Path) -> Path:
+    """An absolute models_dir is used as is; a relative one is under the repository, or under
+    DATAGUARD_MODELS_DIR when set (the test suite points it at a temporary folder, so tests
+    never pick up a model trained on the real data)."""
+    if configured.is_absolute():
+        return configured
+    override = os.environ.get(MODELS_DIR_ENV)
+    return Path(override) if override else REPO_ROOT / configured
 
 
 def feature_sql(config: MLConfig, source_sql: str) -> str:

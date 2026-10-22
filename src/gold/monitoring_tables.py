@@ -128,11 +128,19 @@ def dataset_health_sql(health: dict | None = None) -> str:
             FROM incident_events e JOIN incidents i USING (incident_id)
             WHERE e.event IN ('opened', 'seen_again')
             GROUP BY ALL
+        ),
+        ml AS (  -- the latest anomaly scoring of the version (Phase 7)
+            SELECT dataset, period, sha256, model_id, rows_flagged, flag_rate
+            FROM ml_month_summary
+            QUALIFY row_number() OVER (
+                PARTITION BY dataset, period, sha256 ORDER BY scored_at DESC, model_id) = 1
         )
         SELECT m.dataset, m.period, m.sha256, m.bronze_rows,
                s.silver_rows, s.quarantine_rows, s.warned_rows,
                round(100.0 * s.quarantine_rows / nullif(m.bronze_rows, 0), 4) AS quarantine_pct,
                q.score,
+               ml.rows_flagged AS ml_rows_flagged, ml.flag_rate AS ml_flag_rate,
+               ml.model_id AS ml_model_id,
                coalesce(c.checks_run, 0)::BIGINT AS checks_run,
                coalesce(c.checks_failed, 0)::BIGINT AS checks_failed,
                {", ".join(f"coalesce(c.failed_{s}, 0)::BIGINT AS failed_{s}" for s in SEVERITIES)},
@@ -153,6 +161,7 @@ def dataset_health_sql(health: dict | None = None) -> str:
         LEFT JOIN quality_scores q USING (dataset, period, sha256)
         LEFT JOIN checks c USING (dataset, period, sha256)
         LEFT JOIN found f USING (dataset, period)
+        LEFT JOIN ml USING (dataset, period, sha256)
     """
 
 
@@ -218,6 +227,9 @@ TRENDS = GoldTable(
             FROM h WHERE silver_rows IS NOT NULL
             UNION ALL
             SELECT dataset, period, 'score', '', score FROM h WHERE score IS NOT NULL
+            UNION ALL
+            SELECT dataset, period, 'ml_flag_rate', '', ml_flag_rate
+            FROM h WHERE ml_flag_rate IS NOT NULL
             UNION ALL
             SELECT dataset, period, 'rule_failure_rate', rule_id,
                    rows_failed / nullif(rows_checked, 0)

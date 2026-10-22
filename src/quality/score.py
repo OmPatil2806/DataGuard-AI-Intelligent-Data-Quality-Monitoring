@@ -9,8 +9,9 @@ Dataset checks (schema, volume, freshness, drift; null_rate counts as completene
     p = check_scores of the worst result of that check in the month (pass 1.0 ... critical 0.0),
     from the latest dataset check run of the month's file version.
 Completeness combines both: the lower of the row pass rate and the NULL-rate check.
-Categories without a result (a skipped check, no rule in the category, ml_anomaly before
-Phase 7) are left out of both sums, so they neither help nor hurt.
+ml_anomaly: p = share of the month's Silver rows the anomaly model did not flag (latest scoring).
+Categories without a result (a skipped check, no rule in the category, no trained model) are
+left out of both sums, so they neither help nor hurt.
 
     python src/quality/score.py              # score every month with Silver and show them
 """
@@ -139,6 +140,18 @@ def check_results(
     return run_id, worst
 
 
+def ml_flag_rate(
+    con: duckdb.DuckDBPyConnection, dataset: str, period: str, sha256: str
+) -> tuple[float, str] | None:
+    """Share of the month's Silver rows the anomaly model flagged (latest scoring), and model."""
+    row = con.execute(
+        "SELECT flag_rate, model_id FROM ml_month_summary WHERE dataset = ? AND period = ? "
+        "AND sha256 = ? ORDER BY scored_at DESC LIMIT 1",
+        [dataset, period, sha256],
+    ).fetchone()
+    return (float(row[0]), row[1]) if row else None
+
+
 def score_month(
     con: duckdb.DuckDBPyConnection,
     dataset: Dataset,
@@ -167,6 +180,10 @@ def score_month(
                 rates[category] = (rates[category][0], f"{rates[category][1]}; {source}")
         else:
             rates[category] = (value, source)
+    flagged = ml_flag_rate(con, dataset.name, period, sha256)
+    if flagged is not None:
+        rate, model = flagged
+        rates["ml_anomaly"] = (1 - rate, f"ml model {model}: {rate:.2%} of rows flagged")
 
     parts = [
         Part(category, float(weights[category]), rate, source)

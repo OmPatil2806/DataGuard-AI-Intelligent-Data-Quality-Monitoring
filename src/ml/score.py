@@ -15,7 +15,9 @@ kept as the reason ("fare_per_mile 30 (typical 5.9)").
 Scoring a month again with the same model replaces its rows. Warnings (stored with the month
 and making the run WARNING): the model is older than retrain.max_age_months before the month,
 or a month it learnt from has a newer Silver version than the one it was trained on.
-Exit codes: 0 scored, 1 no model or no Silver, 2 invalid config or arguments.
+With --if-trained (used by gold/rebuild.py) a missing model is not an error: scoring is
+skipped. Exit codes: 0 scored or skipped, 1 no model or no Silver, 2 invalid config or
+arguments.
 """
 
 from __future__ import annotations
@@ -204,6 +206,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model", help="model id (default: the current model)")
     parser.add_argument("--config", type=Path, help="ML config (default: configs/ml.yml)")
     parser.add_argument("--database", type=Path, help="DuckDB file (default: paths.duckdb)")
+    parser.add_argument(
+        "--if-trained", action="store_true", help="skip (exit 0) when no model is trained yet"
+    )
     args = parser.parse_args(argv)
     try:
         config = load_ml_config(args.config)
@@ -214,6 +219,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         trained = load_model(config, args.model)
     except FileNotFoundError as exc:
+        if args.if_trained and args.model is None:
+            print(f"scoring skipped: {exc}")
+            return 0
         print(f"error: {exc}")
         return 1
     with db.connect(args.database) as con:

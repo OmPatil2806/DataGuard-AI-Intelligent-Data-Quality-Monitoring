@@ -127,7 +127,7 @@ category, how much the score depends on the weights, and the incident timeline. 
 ## Gold tables
 
 ```bash
-python src/gold/rebuild.py                                    # Silver, checks, rules, incidents, score, Gold
+python src/gold/rebuild.py                                    # Silver, checks, rules, ML, incidents, score, Gold
 python src/gold/monitoring_tables.py                          # rebuild every Gold table only
 python src/gold/monitoring_tables.py --list                   # the Gold tables and what they hold
 ```
@@ -222,6 +222,12 @@ in Silver) with the features furthest from normal as the reason, e.g. `fare_per_
 (typical 5.9)`. Flags are in `ml_anomalies`, rates per month in `ml_month_summary`. Scoring
 warns when the model is more than 12 months older than the month, or its training months have
 a newer Silver version.
+
+Once a model is trained, `rebuild.py` scores every month in its `ml` stage (skipped before).
+A month whose flag rate rises clearly above the earlier months opens an incident (`ml_anomaly`,
+"Unusual trips (ML)"), the share of unflagged rows is the score's `ml_anomaly` category, and
+Gold shows the rate (`gold_dataset_health`, `gold_trends`). Tests use their own models folder
+(`DATAGUARD_MODELS_DIR`), never a model trained on the real data.
 
 ## Profile the data
 

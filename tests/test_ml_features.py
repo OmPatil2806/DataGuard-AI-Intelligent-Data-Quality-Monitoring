@@ -34,8 +34,18 @@ def test_config_loads():
     assert config.calibrate_month == "2023-04"
     assert (config.rows_per_month, config.seed, config.target_flag_rate) == (100000, 42, 0.01)
     assert config.model["n_estimators"] == 200 and config.top_features == 3
-    assert config.models_dir == REPO_ROOT / "models"
     assert "\n" not in config.features["total_gap"]  # folded YAML becomes one line of SQL
+
+
+def test_models_dir(monkeypatch, tmp_path):
+    # the test suite points DATAGUARD_MODELS_DIR at a temporary folder (tests/conftest.py)
+    assert mf.load_ml_config().models_dir != REPO_ROOT / "models"
+    monkeypatch.delenv(mf.MODELS_DIR_ENV, raising=False)
+    assert mf.load_ml_config().models_dir == REPO_ROOT / "models"
+    monkeypatch.setenv(mf.MODELS_DIR_ENV, str(tmp_path / "elsewhere"))
+    assert mf.load_ml_config().models_dir == tmp_path / "elsewhere"
+    absolute = write_config(tmp_path, lambda d: d.update(models_dir=str(tmp_path / "abs")))
+    assert mf.load_ml_config(absolute).models_dir == tmp_path / "abs"  # absolute wins
 
 
 @pytest.mark.parametrize(

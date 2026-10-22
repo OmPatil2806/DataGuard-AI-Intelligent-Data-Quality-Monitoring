@@ -60,7 +60,7 @@ def test_every_experiment_ran(env):
     for record in env["records"]:
         assert record.ran and record.error is None, record
         assert list(record.stages) == [
-            "ingest", "silver", "checks", "rules", "incidents", "score", "gold",
+            "ingest", "silver", "checks", "rules", "ml", "incidents", "score", "gold",
         ]  # fmt: skip
         assert set(record.stages.values()) == {0}
     assert env["lines"][0].startswith("history 2023-01 to 2023-05: built")

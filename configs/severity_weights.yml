@@ -11,8 +11,9 @@ severity_levels:
 #   score = 100 * sum(w_i * pass_rate_i) / sum(w_i)
 # Row categories (completeness ... consistency): pass_rate = share of rows that fail no rule of
 # the category. Dataset checks (schema, volume, freshness, drift; NULL rate joins completeness):
-# pass_rate from check_scores below. Categories without a result for the month (a skipped check,
-# ml_anomaly before Phase 7) are left out of both sums.
+# pass_rate from check_scores below. ml_anomaly: share of Silver rows the anomaly model did not
+# flag. Categories without a result for the month (a skipped check, no trained model) are left
+# out of both sums.
 category_weights:
   schema: 5
   completeness: 3

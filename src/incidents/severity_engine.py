@@ -156,3 +156,98 @@ def rule_findings(
                 )
         result[period] = (findings, checked)
     return result
+
+
+# --- findings from the anomaly model (Phase 7) -------------------------------------------
+
+
+@dataclass(frozen=True)
+class MLSettings:
+    min_increase: float
+    relative_increase: float
+    cold_start_max_rate: float
+    severity: str
+
+
+def ml_settings(path: Path | None = None) -> MLSettings:
+    from ml.features import load_ml_config
+
+    config = load_ml_config(path).incidents
+    return MLSettings(
+        config["min_increase"],
+        config["relative_increase"],
+        config["cold_start_max_rate"],
+        config["severity"],
+    )
+
+
+def ml_findings(
+    con: duckdb.DuckDBPyConnection,
+    run_id: str,
+    dataset: str,
+    settings: MLSettings | None = None,
+    limits: BaselineSettings | None = None,
+) -> dict[str, tuple[list[Finding], set[Key]]]:
+    """Per month of a scoring run: an `ml_anomaly` finding when the share of flagged rows rises
+    above the same model's flag rate in the earlier months (as for the row rules)."""
+    scored = con.execute(
+        "SELECT period, model_id, flag_rate, rows_flagged FROM ml_month_summary "
+        "WHERE run_id = ? AND dataset = ? ORDER BY period",
+        [run_id, dataset],
+    ).fetchall()
+    if not scored:
+        return {}
+    settings = settings or ml_settings()
+    limits = limits or baselines.settings_for(dataset)
+    result: dict[str, tuple[list[Finding], set[Key]]] = {}
+    key = (dataset, "dataset_check", "ml_anomaly", "")
+    for period, model, rate, flagged in scored:
+        rates = dict(
+            con.execute(
+                """
+                SELECT period, flag_rate FROM ml_month_summary WHERE dataset = ? AND model_id = ?
+                QUALIFY row_number() OVER (PARTITION BY period ORDER BY scored_at DESC) = 1
+                """,
+                [dataset, model],
+            ).fetchall()
+        )
+        earlier = [rates[p] for p in baselines.earlier_months(list(rates), period, limits)]
+        observed = f"{_pct(rate)} of rows flagged ({flagged:,})"
+        if len(earlier) >= limits.min_runs:
+            usual = statistics.median(earlier)
+            allowed = max(settings.min_increase, settings.relative_increase * usual)
+            expected = f"at most {_pct(usual + allowed)} (baseline {_pct(usual)})"
+            is_finding = rate - usual > allowed
+            detail = f"{observed}: {100 * (rate - usual):+.2f} points against the earlier months"
+        else:
+            expected = f"at most {_pct(settings.cold_start_max_rate)} (cold start)"
+            is_finding = rate > settings.cold_start_max_rate
+            detail = f"{observed}, cold start"
+        reasons = con.execute(
+            "SELECT top_features[1] AS f, count(*) FROM ml_anomalies WHERE dataset = ? "
+            "AND period = ? AND model_id = ? GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 3",
+            [dataset, period, model],
+        ).fetchall()
+        if reasons:
+            detail += "; most often " + ", ".join(f"{f} ({n})" for f, n in reasons)
+        findings = (
+            [
+                Finding(
+                    dataset,
+                    "dataset_check",
+                    "ml_anomaly",
+                    settings.severity,
+                    period,
+                    run_id,
+                    "Unusual trips (ML)",
+                    "",
+                    observed,
+                    expected,
+                    detail,
+                )
+            ]  # fmt: skip
+            if is_finding
+            else []
+        )
+        result[period] = (findings, {key})
+    return result

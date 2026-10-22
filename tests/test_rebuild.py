@@ -88,6 +88,7 @@ def test_stages_run_in_order(monkeypatch, tmp_path, capsys):
         (rebuild.process_silver, "silver"),
         (rebuild.run_checks, "checks"),
         (rebuild.run_rules, "rules"),
+        (rebuild.ml_score, "ml"),
         (rebuild.incidents_cli, "incidents"),
         (rebuild.score, "score"),
         (rebuild.monitoring_tables, "gold"),
@@ -96,22 +97,25 @@ def test_stages_run_in_order(monkeypatch, tmp_path, capsys):
     assert (
         rebuild.main(["--database", str(tmp_path / "d.duckdb"), "--lookups", "L", "--force"]) == 0
     )
-    assert [c[0] for c in calls] == ["silver", "checks", "rules", "incidents", "score", "gold"]
+    assert [c[0] for c in calls] == [
+        "silver", "checks", "rules", "ml", "incidents", "score", "gold",
+    ]  # fmt: skip
     argv = dict(calls)
     assert "--force" in argv["silver"] and "--force" not in argv["checks"]
     assert argv["rules"][argv["rules"].index("--lookups") + 1] == "L"
     assert argv["incidents"][-1] == "update"
+    assert "--if-trained" in argv["ml"]  # no model trained yet is not a failure
     assert argv["gold"] == ["--database", str(tmp_path / "d.duckdb")]
     assert "--months" not in argv["silver"]
     calls.clear()
     assert rebuild.main(["--months", "2023-06"]) == 0
     argv = dict(calls)
-    for stage in ("silver", "checks", "rules"):
+    for stage in ("silver", "checks", "rules", "ml"):
         assert argv[stage][argv[stage].index("--months") + 1] == "2023-06", stage
     for stage in ("incidents", "score", "gold"):
         assert "--months" not in argv[stage], stage
     out = capsys.readouterr().out
-    assert "rebuild summary:" in out and out.count(" ok") >= 6
+    assert "rebuild summary:" in out and out.count(" ok") >= 7
 
 
 def test_failed_stage_continues_but_config_error_stops(monkeypatch, capsys):
@@ -123,6 +127,7 @@ def test_failed_stage_continues_but_config_error_stops(monkeypatch, capsys):
     monkeypatch.setattr(rebuild.process_silver, "main", stage("silver", 1))
     monkeypatch.setattr(rebuild.run_checks, "main", stage("checks", 0))
     monkeypatch.setattr(rebuild.run_rules, "main", stage("rules", 2))
+    monkeypatch.setattr(rebuild.ml_score, "main", stage("ml", 0))
     monkeypatch.setattr(rebuild.incidents_cli, "main", stage("incidents", 0))
     monkeypatch.setattr(rebuild.score, "main", stage("score", 0))
     monkeypatch.setattr(rebuild.monitoring_tables, "main", stage("gold", 0))

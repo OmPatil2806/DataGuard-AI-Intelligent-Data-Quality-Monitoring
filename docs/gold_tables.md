@@ -8,7 +8,7 @@ come from). The dashboard (Phase 10) reads Gold only.
 
 | Command | What it does |
 |---|---|
-| `python src/gold/rebuild.py` | Everything after Bronze in one step: Silver, checks, rules, incidents, score, Gold |
+| `python src/gold/rebuild.py` | Everything after Bronze in one step: Silver, checks, rules, anomaly scoring (once a model is trained), incidents, score, Gold |
 | `python src/gold/monitoring_tables.py` | Rebuilds the Gold tables only |
 | `python src/gold/monitoring_tables.py --list` | The Gold tables and what they hold |
 | `python src/gold/lineage.py --period 2023-01 --row 42` | Traces one row from its source file to Silver or Quarantine |
@@ -57,6 +57,7 @@ Periods are `YYYY-MM`. Shares are fractions (0.055 = 5.5%), except `quarantine_p
 | `bronze_rows`, `silver_rows`, `quarantine_rows`, `warned_rows` | Where the rows went; Silver columns are empty until processed |
 | `quarantine_pct` | Quarantine rows in % of Bronze rows |
 | `score` | Quality score 0–100 (Phase 4) |
+| `ml_rows_flagged`, `ml_flag_rate`, `ml_model_id` | Rows the anomaly model flagged and their share, and the model (Phase 7; empty until a model is trained) |
 | `checks_run`, `checks_failed`, `failed_critical` … `failed_low` | Latest dataset check run of this version |
 | `incidents_found`, `incidents_opened`, `incidents_active` | Incidents with a finding this month; opened this month; of those, still active now |
 | `worst_severity` | Worst severity among the failed checks and incidents of the month |
@@ -70,6 +71,7 @@ Periods are `YYYY-MM`. Shares are fractions (0.055 = 5.5%), except `quarantine_p
 | `rows_per_day` | | rows/day | yes |
 | `quarantine_rate`, `warned_rate` | | share | |
 | `score` | | score | |
+| `ml_flag_rate` | | share | (the incident compares it with the earlier months) |
 | `null_rate` | column | share | yes |
 | `psi` | binned column | psi | (PSI is itself the comparison) |
 | `rule_failure_rate` | rule id | share | |

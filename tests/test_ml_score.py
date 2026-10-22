@@ -164,6 +164,9 @@ def test_errors(env, tmp_path, capsys):
     no_model = write_config(tmp_path)
     assert ms.main(["--config", str(no_model), "--database", str(env["db"])]) == 1
     assert "no trained model" in capsys.readouterr().out
+    argv = ["--config", str(no_model), "--database", str(env["db"]), "--if-trained"]
+    assert ms.main(argv) == 0  # what gold/rebuild.py does before a model is trained
+    assert "scoring skipped: no trained model" in capsys.readouterr().out
     assert ms.main(["--config", str(env["config_file"]), "--months", "May"]) == 2
     argv = ["--config", str(env["config_file"]), "--database", str(env["db"])]
     assert ms.main([*argv, "--months", "2024-01"]) == 1

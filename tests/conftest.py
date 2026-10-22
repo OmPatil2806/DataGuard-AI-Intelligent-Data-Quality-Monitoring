@@ -7,6 +7,21 @@ import pytest
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _isolated_models_dir(tmp_path_factory):
+    """Keep every test away from models trained on the real data (models/ in the repository)."""
+    import os
+
+    folder = tmp_path_factory.mktemp("models")
+    previous = os.environ.get("DATAGUARD_MODELS_DIR")
+    os.environ["DATAGUARD_MODELS_DIR"] = str(folder)
+    yield folder
+    if previous is None:
+        os.environ.pop("DATAGUARD_MODELS_DIR", None)
+    else:
+        os.environ["DATAGUARD_MODELS_DIR"] = previous
+
+
 @pytest.fixture
 def fixture_trips() -> pd.DataFrame:
     return pd.read_parquet(FIXTURES / "yellow_tripdata_fixture.parquet")

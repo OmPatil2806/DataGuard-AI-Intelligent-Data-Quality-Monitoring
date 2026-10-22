@@ -9,11 +9,13 @@ Each stage is the same command a user would run by hand, in this order:
     1 silver     src/silver/process_silver.py        Silver and Quarantine (skips versions done)
     2 checks     src/quality/run_checks.py           dataset-level checks, one tracked run
     3 rules      src/quality/run_rules.py            row rule results, one tracked run
-    4 incidents  src/incidents/incidents_cli.py update
-    5 score      src/quality/score.py
-    6 gold       src/gold/monitoring_tables.py       every Gold table, one transaction
+    4 ml         src/ml/score.py --if-trained        anomaly flags (skipped until a model is
+                                                     trained with src/ml/train.py)
+    5 incidents  src/incidents/incidents_cli.py update
+    6 score      src/quality/score.py
+    7 gold       src/gold/monitoring_tables.py       every Gold table, one transaction
 
---months limits the stages that work month by month (silver, checks, rules); the checks still
+--months limits the stages that work month by month (silver, checks, rules, ml); the checks still
 compare with every earlier month in the database, and the incidents, score and Gold stages
 always cover every month. Every stage is safe to repeat, so running the rebuild again on the
 same Bronze gives the same Gold: the same checksums in gold_build_log (run ids and timestamps
@@ -39,6 +41,7 @@ if __package__ in (None, ""):
 
 from gold import monitoring_tables  # noqa: E402
 from incidents import incidents_cli  # noqa: E402
+from ml import score as ml_score  # noqa: E402
 from quality import run_checks, run_rules, score  # noqa: E402
 from silver import process_silver  # noqa: E402
 
@@ -66,6 +69,7 @@ def stages(args: argparse.Namespace) -> list[tuple[str, Callable[[list[str]], in
         ),
         ("checks", run_checks.main, [*dataset, *months, *database]),
         ("rules", run_rules.main, [*dataset, *months, *lookups, *database]),
+        ("ml", ml_score.main, [*months, *database, "--if-trained"]),
         ("incidents", incidents_cli.main, [*database, *dataset, "update"]),
         ("score", score.main, [*dataset, *database]),
         ("gold", monitoring_tables.main, database),
