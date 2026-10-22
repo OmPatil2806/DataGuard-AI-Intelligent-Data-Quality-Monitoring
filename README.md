@@ -9,11 +9,12 @@ freshness, volume, drift) raise incidents, and **Gold** monitoring tables feed a
 Version 1 runs on real NYC TLC Yellow Taxi data with deliberately injected faults, so detection
 quality is measured instead of assumed.
 
-**Status:** Phase 6 complete (fault injection and detection evaluation: what is caught, what
-is missed and why, in [docs/detection_evaluation.md](docs/detection_evaluation.md)). Pending
-a run on the full data: the total-amount rule (open item O1), the measured rule results, the
-drift and score calibrations (notebooks 03 and 04) and the detection evaluation (notebook 05).
-Next: Phase 7, ML anomaly detection.
+**Status:** Phase 7 complete (ML anomaly detection: an Isolation Forest for trips whose values
+do not fit together, in the pipeline and compared with the rules in
+[docs/ml_anomaly.md](docs/ml_anomaly.md)). Pending a run on the full data: the total-amount rule
+(open item O1), the measured rule results, the drift and score calibrations (notebooks 03 and
+04), the detection evaluation (notebook 05) and the anomaly model (notebook 06). Next: Phase 8,
+the investigation engine.
 
 ## Setup
 
@@ -232,6 +233,10 @@ A month whose flag rate rises clearly above the earlier months opens an incident
 "Unusual trips (ML)"), the share of unflagged rows is the score's `ml_anomaly` category, and
 Gold shows the rate (`gold_dataset_health`, `gold_trends`). Tests use their own models folder
 (`DATAGUARD_MODELS_DIR`), never a model trained on the real data.
+
+`notebooks/06_ml_anomaly_detection.ipynb` shows what the model learnt, where the threshold sits,
+the flag rate per month, the most unusual trips and why, and rules only against rules + ML on the
+detection experiments. Details: [docs/ml_anomaly.md](docs/ml_anomaly.md).
 
 ## Profile the data
 

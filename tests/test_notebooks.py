@@ -149,3 +149,49 @@ def test_detection_evaluation_notebook_runs(tmp_path, monkeypatch):
     assert "control month raises: nothing" in text
     assert '"volume_drop-20pct"' in text and '"flagged_without_incident"' in text
     assert (tmp_path / "workspace" / "evaluation_results.csv").is_file()
+
+
+def test_ml_anomaly_notebook_runs(tmp_path, monkeypatch):
+    """A pipeline with a trained model (May has planted fares) and two clean experiments."""
+    import duckdb
+    from evaluation_fixture import make_config, make_sources
+
+    from evaluation import run_experiments
+    from gold import rebuild
+    from ingestion import ingest_data
+    from ml import train
+
+    monkeypatch.setenv("DATAGUARD_MODELS_DIR", str(tmp_path / "models"))
+    source = make_sources(tmp_path / "source")
+    may = source / "yellow_tripdata_2023-05.parquet"
+    trips = duckdb.sql(f"SELECT * FROM read_parquet('{may.as_posix()}')").df()
+    short = trips.index[trips["trip_distance"].between(0.5, 3) & (trips["fare_amount"] > 0)]
+    trips.loc[list(short[:10]), "fare_amount"] *= 10
+    trips.to_parquet(may, index=False)
+    common = ["--database", str(tmp_path / "dataguard.duckdb")]
+    bronze = ["--source", str(source), "--bronze", str(tmp_path / "bronze")]
+    assert ingest_data.main(["--months", "2023-01:2023-05", *bronze, *common]) == 0
+    argv = ["--lookups", str(source), "--silver", str(tmp_path / "silver"),
+            "--quarantine", str(tmp_path / "quarantine"), *common]  # fmt: skip
+    assert rebuild.main(argv) == 0
+    assert train.main(common) == 0
+    assert rebuild.main(argv) == 0  # scores every month with the model
+
+    clean = make_sources(tmp_path / "clean")  # the experiments start from clean months
+    config = make_config(tmp_path, tmp_path / "workspace")
+    run_experiments.run_all(config, clean, ["control", "plausible_but_wrong-20pct"], out=print)
+
+    monkeypatch.setenv("DATAGUARD_DATABASE", str(tmp_path / "dataguard.duckdb"))
+    monkeypatch.setenv("DATAGUARD_FAULTS_CONFIG", str(tmp_path / "faults.yml"))
+    path = REPO_ROOT / "notebooks" / "06_ml_anomaly_detection.ipynb"
+    notebook = nbformat.read(path, as_version=4)
+    client = NotebookClient(
+        notebook, timeout=300, kernel_name="python3", resources={"metadata": {"path": REPO_ROOT}}
+    )
+    client.execute()
+    outputs = [o for cell in notebook.cells if cell.cell_type == "code" for o in cell.outputs]
+    assert not [o for o in outputs if o.output_type == "error"]
+    text = "".join(str(o.get("text", "")) + str(o.get("data", {})) for o in outputs)
+    assert '"ml_incidents": [\n    "2023-05"\n  ]' in text
+    assert '"ml_adds": [\n      "plausible_but_wrong-20pct"\n    ]' in text
+    assert "1 ML incident(s)" in text
