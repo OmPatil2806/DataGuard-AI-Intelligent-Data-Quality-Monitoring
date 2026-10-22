@@ -145,7 +145,7 @@ def test_detection_evaluation_notebook_runs(tmp_path, monkeypatch):
     outputs = [o for cell in notebook.cells if cell.cell_type == "code" for o in cell.outputs]
     assert not [o for o in outputs if o.output_type == "error"]
     text = "".join(str(o.get("text", "")) + str(o.get("data", {})) for o in outputs)
-    assert "4 experiment(s) evaluated of 30 planned" in text
+    assert "4 experiment(s) evaluated of 33 planned" in text
     assert "control month raises: nothing" in text
     assert '"volume_drop-20pct"' in text and '"flagged_without_incident"' in text
     assert (tmp_path / "workspace" / "evaluation_results.csv").is_file()

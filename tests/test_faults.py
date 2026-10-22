@@ -88,6 +88,7 @@ ROW_FAULTS = {
     "unit_change": {"trip_distance"},
     "pickup_outside_month": {PICKUP, DROPOFF},
     "swapped_times": {PICKUP, DROPOFF},
+    "plausible_but_wrong": {"fare_amount", "total_amount"},
 }
 
 
@@ -144,6 +145,20 @@ def test_pickup_outside_month_keeps_the_duration(run):
     assert (after.dt.time == before.dt.time).all()
     duration = lambda f: f.loc[rows, DROPOFF] - f.loc[rows, PICKUP]  # noqa: E731
     assert (duration(frame) == duration(control)).all()
+
+
+def test_plausible_but_wrong_keeps_every_value_plausible(run):
+    _, control, _ = run("control")
+    m, frame, _ = run("plausible_but_wrong-20pct")
+    rows = [r - 1 for r in m.affected_rows]
+    before, after = control.loc[rows], frame.loc[rows]
+    assert before["trip_distance"].between(0.5, 3.0).all()  # short trips only
+    assert np.allclose(after["fare_amount"], 3 * before["fare_amount"])
+    # the total rises by the same amount, so it still adds up
+    assert np.allclose(after["total_amount"] - before["total_amount"], 2 * before["fare_amount"])
+    assert (after["fare_amount"] < 200).all()  # in range: no rule is broken by the fare alone
+    eligible = control["trip_distance"].between(0.5, 3.0) & (control["fare_amount"] > 0)
+    assert len(rows) == max(1, round(0.2 * int(eligible.sum())))
 
 
 def test_swapped_times(run):

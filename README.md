@@ -198,9 +198,13 @@ should fire. A control experiment keeps the month unbroken. Experiments run in t
 folders under `data/evaluation/`, never in the real pipeline's database. The same seed always
 gives the same sample and the same broken rows.
 
-The ten faults (`src/evaluation/faults.py`), one per check category: missing column, NULL
+The eleven faults (`src/evaluation/faults.py`), one per check category: missing column, NULL
 spike, duplicate rows, out-of-range fares, orphan location IDs, distances in kilometres, volume
-drop, late file, pickups moved into the previous month, and swapped pickup and dropoff times.
+drop, late file, pickups moved into the previous month, swapped pickup and dropoff times, and
+"plausible but wrong" fares (tripled on short trips with the total raised to match, every value
+in range: only the anomaly model can see it). The history trains the anomaly model, so every
+experiment is also scored by it, and `evaluate.py` compares **rules only** with **rules + ML**
+per experiment, with the model's flags in the control month as its false alarms.
 
 ## ML anomaly detection
 

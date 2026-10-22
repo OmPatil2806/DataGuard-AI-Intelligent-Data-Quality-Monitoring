@@ -24,8 +24,9 @@ strengths:
 # kind:            share | days | none (one experiment, no strength)
 # extra_strengths: added where every default strength is below a check's deliberate limit,
 #                  so the evaluation also shows the check catching its fault
-# expect:          detectors that should fire: a row rule id or a dataset check
-#                  (schema, volume, freshness, null_rate, drift), with column for per-column checks
+# expect:          detectors that should fire: a row rule id, a dataset check (schema, volume,
+#                  freshness, null_rate, drift; column for per-column checks), or ml: anomaly
+#                  (the anomaly model of Phase 7)
 faults:
   missing_column:
     category: schema
@@ -98,3 +99,10 @@ faults:
     description: "Pickup and dropoff times swapped for a share of rows"
     params: {}
     expect: [{rule: dropoff_not_before_pickup}]
+
+  plausible_but_wrong:
+    category: ml_anomaly
+    kind: share
+    description: "Fares tripled on short trips, total raised to match: every value in range"
+    params: {factor: 3, max_distance: 3.0}
+    expect: [{ml: anomaly}]

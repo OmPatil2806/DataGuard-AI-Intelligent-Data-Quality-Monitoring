@@ -22,6 +22,7 @@ RUN = [
     "volume_drop-50pct",
     "stale_file-1d",
     "stale_file-20d",
+    "plausible_but_wrong-20pct",
 ]
 
 
@@ -83,7 +84,23 @@ def test_score_drop_against_the_control(env):
 
 
 def test_control_raises_nothing(env):
-    assert ev.control_findings(env["config"]) == []
+    assert ev.control_findings(env["config"]) == []  # no ML incident either
+    rate, flagged = ev.control_ml(env["config"])
+    assert 0 < rate <= 0.02 and flagged >= 1  # the model's calibrated ~1% of normal flags
+
+
+def test_ml_catches_what_no_rule_sees(env):
+    row = env["frame"].loc["plausible_but_wrong-20pct"]
+    assert row.detector == "ml anomaly"
+    assert (row.rules_outcome, row.ml_outcome, row.combined_outcome) == (
+        "missed", "caught", "caught",
+    )  # fmt: skip
+    assert row.outcome == "caught" and row.incident and row.caught_rows >= 1
+    table = ev.comparison(env["frame"].reset_index()).set_index("experiment_id")
+    assert table.loc["plausible_but_wrong-20pct", "ml_adds"]
+    rule_faults = ["duplicate_rows-5pct", "out_of_range-20pct", "missing_column"]
+    assert not table.loc[rule_faults, "ml_adds"].any()  # the rules already catch these
+    assert (table["ml_outcome"].notna()).all()  # every experiment was scored by the model
 
 
 def test_results_are_stored(env):
@@ -99,6 +116,7 @@ def test_results_are_stored(env):
 def test_main(env, capsys):
     assert ev.main(["--config", str(env["root"] / "faults.yml")]) == 0
     out = capsys.readouterr().out
+    assert "rules only:" in out and "rules + ML:" in out and "of the control month" in out
     assert "detector(s)" in out and "control month raises: nothing" in out
     assert "evaluation_results" in out
 
@@ -171,3 +189,23 @@ def test_side_findings_and_errors():
         manifest([{"kind": "check", "id": "schema"}]), failed, None, view()
     )
     assert (e.outcome, e.error) == ("error", "ValueError: no")
+
+
+def test_compare_counts_only_new_flags():
+    # rows 1-4 broken; the rule already fails row 2 in the control, the model row 3
+    m = manifest([{"kind": "ml", "id": "anomaly"}], affected=[1, 2, 3, 4])
+    control = view(rule_rows={"fare_not_negative": {2}})
+    control = MonthView(**{**control.__dict__, "ml_rows": frozenset({3}), "ml_rate": 0.01})
+    seen = view(rule_rows={"fare_not_negative": {2}})
+    seen = MonthView(**{**seen.__dict__, "ml_rows": frozenset({3, 4, 9}), "ml_rate": 0.03})
+    result = ev.compare(m, seen, control)
+    assert result["rules_outcome"] == "missed"  # row 2 failed the rule before the fault
+    assert (result["ml_caught_rows"], result["ml_recall"]) == (1, 0.25)  # only row 4 is new
+    assert result["ml_extra_flags"] == 1  # row 9, beyond the control's one flag
+    assert (result["ml_outcome"], result["combined_outcome"]) == ("flagged", "flagged")
+    alert = MonthView(
+        **{**seen.__dict__, "incidents": {("dataset_check", "ml_anomaly", ""): "medium"}}
+    )
+    assert ev.compare(m, alert, control)["ml_outcome"] == "caught"
+    without_model = view()
+    assert ev.compare(m, without_model, view())["ml_outcome"] is None

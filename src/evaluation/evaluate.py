@@ -59,6 +59,8 @@ class MonthView:
     rule_rows: dict[str, set[int]]  # rule id -> bronze_row_ids that failed it
     score: float | None
     health: str | None
+    ml_rows: frozenset[int] = frozenset()  # bronze_row_ids the anomaly model flagged
+    ml_rate: float | None = None  # share of Silver rows flagged; None without a model
 
     def failed_checks(self) -> set[tuple[str, str]]:
         return {key for key, (status, *_rest) in self.checks.items() if status == "fail"}
@@ -108,7 +110,29 @@ def month_view(database: Path, dataset: str, period: str) -> MonthView:
             "SELECT score, health FROM gold_dataset_health WHERE dataset = ? AND period = ?",
             [dataset, period],
         ).fetchone()
-    return MonthView(checks, incidents, rule_rows, *(health or (None, None)))
+        scored = con.execute(
+            "SELECT model_id, flag_rate FROM ml_month_summary WHERE dataset = ? AND period = ? "
+            "AND sha256 = ? ORDER BY scored_at DESC LIMIT 1",
+            [dataset, period, sha],
+        ).fetchone()
+        ml_rows: frozenset[int] = frozenset()
+        if scored:
+            ml_rows = frozenset(
+                int(r)
+                for (r,) in con.execute(
+                    "SELECT bronze_row_id FROM ml_anomalies WHERE dataset = ? AND period = ? "
+                    "AND sha256 = ? AND model_id = ?",
+                    [dataset, period, sha, scored[0]],
+                ).fetchall()
+            )
+    return MonthView(
+        checks,
+        incidents,
+        rule_rows,
+        *(health or (None, None)),
+        ml_rows=ml_rows,
+        ml_rate=float(scored[1]) if scored else None,
+    )
 
 
 @dataclass
@@ -138,6 +162,14 @@ class Result:
     side_findings: str | None = None
     stage_failures: str | None = None
     error: str | None = None
+    # rules only against rules + ML (Phase 7), per experiment
+    ml_caught_rows: int | None = None
+    ml_recall: float | None = None
+    ml_extra_flags: int | None = None
+    ml_rate: float | None = None
+    rules_outcome: str | None = None
+    ml_outcome: str | None = None
+    combined_outcome: str | None = None
 
 
 def _label(expect: dict[str, str]) -> str:
@@ -145,10 +177,58 @@ def _label(expect: dict[str, str]) -> str:
     return f"{expect['kind']} {expect['id']}{column}"
 
 
+ML_INCIDENT = ("dataset_check", "ml_anomaly", "")
+RANK = {"caught": 3, "flagged": 2, "missed": 1, "error": 0}
+
+
 def _incident_key(expect: dict[str, str]) -> tuple[str, str, str]:
     if expect["kind"] == "rule":
         return ("row_rule", expect["id"], "")
+    if expect["kind"] == "ml":
+        return ML_INCIDENT
     return ("dataset_check", expect["id"], expect.get("column", ""))
+
+
+def _rows(view: MonthView, expect: dict[str, str]) -> set[int]:
+    if expect["kind"] == "ml":
+        return set(view.ml_rows)
+    return view.rule_rows.get(expect["id"], set())
+
+
+def compare(manifest: fi.Manifest, view: MonthView, control: MonthView) -> dict[str, object]:
+    """Rules only against rules + ML for one experiment.
+
+    rules: caught when any check or row-rule incident is new against the control, flagged when
+    a rule flagged a broken row that the control row does not already fail. ML: caught when an
+    ml_anomaly incident is new, flagged when the model flagged a broken row that it does not
+    already flag in the control. Combined: the better of the two."""
+    broken = set(manifest.affected_rows)
+    new_incidents = set(view.incidents) - set(control.incidents)
+    rule_alert = bool(view.failed_checks() - control.failed_checks()) or any(
+        key != ML_INCIDENT for key in new_incidents
+    )
+    newly_flagged = {
+        row
+        for rule, rows in view.rule_rows.items()
+        for row in (rows & broken) - control.rule_rows.get(rule, set())
+    }
+    rules = "caught" if rule_alert else ("flagged" if newly_flagged else "missed")
+    ml_caught = len((broken & view.ml_rows) - control.ml_rows)
+    if ML_INCIDENT in new_incidents:
+        ml = "caught"
+    else:
+        ml = "flagged" if ml_caught else "missed"
+    return {
+        "ml_caught_rows": ml_caught if broken else None,
+        "ml_recall": round(ml_caught / len(broken), 4) if broken else None,
+        "ml_extra_flags": max(0, len(view.ml_rows) - ml_caught - len(control.ml_rows))
+        if view.ml_rate is not None
+        else None,
+        "ml_rate": view.ml_rate,
+        "rules_outcome": rules,
+        "ml_outcome": ml if view.ml_rate is not None else None,
+        "combined_outcome": max(rules, ml, key=RANK.get) if view.ml_rate is not None else rules,
+    }
 
 
 def evaluate_experiment(
@@ -165,8 +245,9 @@ def evaluate_experiment(
         "stage_failures": ", ".join(s for s, c in record.stages.items() if c != 0) or None,
     }
     if view is None or not record.ran:
+        failed = {"rules_outcome": "error", "ml_outcome": "error", "combined_outcome": "error"}
         return [
-            Result(**base, detector=_label(e), outcome="error", error=record.error)
+            Result(**base, **failed, detector=_label(e), outcome="error", error=record.error)
             for e in manifest.expect
         ]
 
@@ -178,16 +259,24 @@ def evaluate_experiment(
     new_incidents = set(view.incidents) - set(control.incidents) - expected_incidents
     side = sorted(
         {f"{c} {col}".strip() + f" ({view.checks[(c, col)][1]})" for c, col in new_checks}
-        | {f"incident {r} {col}".strip() for s, r, col in new_incidents if s == "row_rule"}
+        | {
+            f"incident {r} {col}".strip()
+            for s, r, col in new_incidents
+            if s == "row_rule" or r == "ml_anomaly"
+        }
     )
-    common = base | {
-        "score": view.score,
-        "score_drop": None
-        if view.score is None or control.score is None
-        else round(control.score - view.score, 4),
-        "health": view.health,
-        "side_findings": "; ".join(side) or None,
-    }
+    common = (
+        base
+        | {
+            "score": view.score,
+            "score_drop": None
+            if view.score is None or control.score is None
+            else round(control.score - view.score, 4),
+            "health": view.health,
+            "side_findings": "; ".join(side) or None,
+        }
+        | compare(manifest, view, control)
+    )
 
     results = []
     for expect in manifest.expect:
@@ -195,11 +284,15 @@ def evaluate_experiment(
         key = _incident_key(expect)
         if key in view.incidents and key not in control.incidents:
             result.incident, result.incident_severity = True, view.incidents[key]
-        if expect["kind"] == "rule":
-            flagged = view.rule_rows.get(expect["id"], set())
+        if expect["kind"] in ("rule", "ml"):
+            flagged = _rows(view, expect)
             broken = set(manifest.affected_rows)
-            caught = len(flagged & broken)
-            already = len(control.rule_rows.get(expect["id"], set()))
+            already_flagged = _rows(control, expect)
+            if expect["kind"] == "ml":  # a row the model flags anyway is not a detection
+                caught = len((flagged & broken) - already_flagged)
+            else:  # a fault only breaks rows that do not fail its rule already
+                caught = len(flagged & broken)
+            already = len(already_flagged)
             result.caught_rows = caught
             result.extra_flags = max(0, len(flagged) - caught - already)
             if broken:
@@ -260,6 +353,25 @@ def control_findings(config: fi.FaultsConfig) -> list[str]:
     )
 
 
+def control_ml(config: fi.FaultsConfig) -> tuple[float | None, int]:
+    """The anomaly model on the unbroken target month: flag rate and rows flagged."""
+    database = config.workspace / "experiments" / fi.CONTROL / DATABASE
+    view = month_view(database, config.dataset, config.target_month)
+    return view.ml_rate, len(view.ml_rows)
+
+
+def comparison(frame: pd.DataFrame) -> pd.DataFrame:
+    """One row per experiment: rules only against rules + ML."""
+    columns = ["experiment_id", "fault_id", "strength", "rules_outcome", "ml_outcome",
+               "combined_outcome", "ml_recall", "ml_extra_flags"]  # fmt: skip
+    table = frame.drop_duplicates("experiment_id")[columns].reset_index(drop=True)
+    table["ml_adds"] = [
+        RANK.get(c, 0) > RANK.get(r, 0)
+        for r, c in zip(table["rules_outcome"], table["combined_outcome"], strict=True)
+    ]
+    return table
+
+
 def store(config: fi.FaultsConfig, frame: pd.DataFrame) -> tuple[Path, Path]:
     csv = config.workspace / CSV
     frame.to_csv(csv, index=False)
@@ -295,6 +407,15 @@ def main(argv: list[str] | None = None) -> int:
     print("\n" + ", ".join(f"{n} {o}" for o, n in counts.items()) + f" of {len(frame)} detector(s)")
     alarms = control_findings(config)
     print("control month raises: " + (", ".join(alarms) if alarms else "nothing"))
+    rate, flagged = control_ml(config)
+    if rate is not None:
+        table = comparison(frame)
+        print(
+            f"rules only: {(table['rules_outcome'] == 'caught').sum()} caught; rules + ML: "
+            f"{(table['combined_outcome'] == 'caught').sum()} caught; ML adds detection in "
+            f"{int(table['ml_adds'].sum())} experiment(s); the model flags {rate:.2%} "
+            f"({flagged} rows) of the control month"
+        )
     print(f"-> {csv}\n-> {database} (evaluation_results)")
     return 0
 

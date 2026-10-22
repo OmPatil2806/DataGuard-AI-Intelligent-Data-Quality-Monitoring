@@ -1,4 +1,4 @@
-"""The ten faults of the detection evaluation, one per check category.
+"""The eleven faults of the detection evaluation, one per check category.
 
 Every fault gets the sampled rows of the target month (a pandas frame with pyarrow types),
 its strength and params from configs/faults.yml, and a random generator seeded for the
@@ -14,6 +14,9 @@ experiment. It changes only the rows it reports, and only the columns it is abou
     stale_file            deliver the file late (strength = days)        month level
     pickup_outside_month  move a share of trips into the previous month (duration kept)
     swapped_times         swap pickup and dropoff time in a share of trips
+    plausible_but_wrong   triple the fare of a share of short trips and raise the total to match:
+                          every value stays in range and the total still adds up, only the fare
+                          does not fit the trip (for the anomaly model, Phase 7)
 
 Rows are chosen only among rows the fault really changes (a NULL that is already NULL is not
 a fault), so the share is a share of those rows.
@@ -179,3 +182,16 @@ def swapped_times(frame, strength, params, rng):
     frame.loc[rows, PICKUP] = frame.loc[rows, DROPOFF].to_numpy()
     frame.loc[rows, DROPOFF] = pickup.to_numpy()
     return FaultResult(frame, affected=rows.tolist(), note="pickup and dropoff swapped")
+
+
+@fault("plausible_but_wrong")
+def plausible_but_wrong(frame, strength, params, rng):
+    factor, longest = float(params["factor"]), float(params["max_distance"])
+    short = frame["trip_distance"].between(0.5, longest) & (frame["fare_amount"] > 0)
+    rows = choose(_eligible(short & frame["total_amount"].notna()), strength, rng)
+    extra = frame.loc[rows, "fare_amount"] * (factor - 1)
+    frame.loc[rows, "fare_amount"] = frame.loc[rows, "fare_amount"] + extra
+    frame.loc[rows, "total_amount"] = frame.loc[rows, "total_amount"] + extra
+    return FaultResult(
+        frame, affected=rows.tolist(), note=f"fare x {factor:g} on trips up to {longest:g} miles"
+    )

@@ -38,10 +38,10 @@ def test_config_loads(config):
     assert config.history == ("2023-01", "2023-02", "2023-03", "2023-04", "2023-05")
     assert (config.sample_fraction, config.seed) == (0.1, 42)
     assert config.workspace == REPO_ROOT / "data" / "evaluation"
-    assert len(config.faults) == 10
+    assert len(config.faults) == 11
     assert {f.category for f in config.faults.values()} == {
         "schema", "completeness", "uniqueness", "validity", "referential",
-        "drift", "volume", "freshness", "pattern", "consistency",
+        "drift", "volume", "freshness", "pattern", "consistency", "ml_anomaly",
     }  # fmt: skip
     assert config.faults["missing_column"].strengths == (None,)
     assert config.faults["null_spike"].strengths == (0.01, 0.05, 0.2)
@@ -50,13 +50,14 @@ def test_config_loads(config):
     assert config.faults["stale_file"].strengths == (1, 5, 20)
     assert config.faults["null_spike"].expect == (fi.Expect("check", "null_rate", "fare_amount"),)
     assert config.faults["duplicate_rows"].expect == (fi.Expect("rule", "trip_unique"),)
+    assert config.faults["plausible_but_wrong"].expect == (fi.Expect("ml", "anomaly"),)
 
 
 def test_experiment_plan(config):
     plan = config.experiments()
     assert plan[0] == ("control", "control", None)
     ids = [p[0] for p in plan]
-    assert len(ids) == 31 == len(set(ids))
+    assert len(ids) == 34 == len(set(ids))
     for expected in ("missing_column", "null_spike-1pct", "volume_drop-50pct", "stale_file-20d",
                      "unit_change-100pct", "swapped_times-20pct"):  # fmt: skip
         assert expected in ids
@@ -88,6 +89,7 @@ def test_experiment_plan(config):
             "exactly one of",
         ),
         (lambda d: d["faults"]["null_spike"].update(expect=[]), "at least one detector"),
+        (lambda d: d["faults"]["null_spike"].update(expect=[{"ml": "forest"}]), "is 'anomaly'"),
         (lambda d: d["faults"].update(control=d["faults"]["null_spike"]), "invalid fault id"),
         (lambda d: d.update(faults={}), "no faults"),
     ],
@@ -223,7 +225,7 @@ def test_manifest_must_be_complete(tmp_path):
 def test_main(tmp_path, capsys):
     assert fi.main(["--list"]) == 0
     out = capsys.readouterr().out
-    assert "31 experiments" in out and "volume_drop-50pct" in out
+    assert "34 experiments" in out and "volume_drop-50pct" in out
     assert fi.main(["--fault", "control", "--source", str(FIXTURE), "--out", str(tmp_path)]) == 0
     assert "control: 20 of 200 rows sampled" in capsys.readouterr().out
     assert fi.main(["--fault", "control"]) == 2

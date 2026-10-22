@@ -68,7 +68,7 @@ CONTROL = "control"
 class Expect:
     """A detector that should fire: a row rule, or a dataset check (optionally per column)."""
 
-    kind: str  # rule | check
+    kind: str  # rule | check | ml
     id: str
     column: str = ""
 
@@ -169,9 +169,13 @@ def load_faults_config(path: Path | None = None) -> FaultsConfig:
             strengths = tuple(sorted(set(default[kind]) | set(extra)))
         expects = []
         for item in _require(raw, "expect", at) or []:
-            if not isinstance(item, dict) or len({"rule", "check"} & set(item)) != 1:
-                raise ConfigError(f"{at}.expect: each entry needs exactly one of rule or check")
-            if "rule" in item:
+            if not isinstance(item, dict) or len({"rule", "check", "ml"} & set(item)) != 1:
+                raise ConfigError(f"{at}.expect: each entry needs exactly one of rule, check or ml")
+            if "ml" in item:
+                if item["ml"] != "anomaly":
+                    raise ConfigError(f"{at}.expect: the ml detector is 'anomaly'")
+                expects.append(Expect("ml", "anomaly"))
+            elif "rule" in item:
                 if item["rule"] not in rule_ids:
                     raise ConfigError(f"{at}.expect: unknown rule '{item['rule']}'")
                 expects.append(Expect("rule", str(item["rule"])))

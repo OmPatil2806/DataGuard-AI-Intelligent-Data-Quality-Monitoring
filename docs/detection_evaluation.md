@@ -44,7 +44,7 @@ what was broken (the ground truth) and with the same month unbroken (the control
 
 A check failing, or an incident seen, in the control month too is never credited.
 
-## The ten faults
+## The eleven faults
 
 | Fault | Category | What it does | Strengths | Expected detector |
 |---|---|---|---|---|
@@ -58,6 +58,7 @@ A check failing, or an incident seen, in the control month too is never credited
 | `stale_file` | freshness | File delivered late (data unchanged) | 1, 5, 20 days | freshness check |
 | `pickup_outside_month` | pattern | Moves trips into the previous month (duration kept) | 1%, 5%, 20% | rule `pickup_in_file_month` |
 | `swapped_times` | consistency | Swaps pickup and dropoff time | 1%, 5%, 20% | rule `dropoff_not_before_pickup` |
+| `plausible_but_wrong` | ml_anomaly | Triples the fare of short trips (0.5 to 3 miles) and raises the total to match: every value stays in range | 1%, 5%, 20% | the anomaly model (Phase 7) |
 
 A share is a share of the rows the fault can really change (a NULL that is already NULL is not
 a fault). The extra strengths (volume 50%, unit change 100%) sit above the check's limit, so
@@ -65,8 +66,8 @@ every check is also shown catching its fault.
 
 ## Results on the test data
 
-All 31 experiments on the test months: the fixture's 200 trips moved into each month of
-2023-01 to 2023-06, every row used (`sample_fraction` 1.0). **20 caught, 4 flagged, 6 missed,
+All 34 experiments on the test months: the fixture's 200 trips moved into each month of
+2023-01 to 2023-06, every row used (`sample_fraction` 1.0). **21 caught, 5 flagged, 7 missed,
 0 errors.** The control month raises nothing: no false alarms. Rule faults: 100% of the
 broken rows flagged at every strength, 0 good rows flagged.
 
@@ -102,6 +103,9 @@ broken rows flagged at every strength, 0 good rows flagged.
 | `swapped_times-1pct` | rule dropoff_not_before_pickup | 🟢 caught | high | 2/2 rows (100%), 0 extra | 0.0 |
 | `swapped_times-5pct` | rule dropoff_not_before_pickup | 🟢 caught | high | 10/10 rows (100%), 0 extra | 0.3 |
 | `swapped_times-20pct` | rule dropoff_not_before_pickup | 🟢 caught | high | 39/39 rows (100%), 0 extra | 1.3 |
+| `plausible_but_wrong-1pct` | ml anomaly | 🟡 flagged | – | 1/1 rows (100%), 0 extra | 0.0 |
+| `plausible_but_wrong-5pct` | ml anomaly | 🔴 missed | – | 0/2 rows new (one was flagged in the control already) | 0.0 |
+| `plausible_but_wrong-20pct` | ml anomaly | 🟢 caught | medium | 2/9 rows (22%), 0 extra; flag rate 2.1% against about 1% | 0.0 |
 
 Side findings: `missing_column` also fails the NULL-rate check on `passenger_count` (the column
 is filled with NULLs when the file is standardized); `out_of_range-20pct` also moves the
@@ -116,7 +120,8 @@ Every miss stays inside a limit set on purpose; the evaluation measures where th
 |---|---|---|---|
 | `volume_drop` 1%, 5%, 20% | Rows per day within ±30% of the median of the earlier months (`defaults.volume.tolerance`) | Real 2023 volumes move by up to −17% (July, August) and +11% (October) against their baseline without anything being wrong; a tighter limit would alarm in normal months. Missing rows cannot be caught row by row | A drop of more than 30% (`volume_drop-50pct` is caught). A tighter limit only with a seasonal baseline (same month last year) |
 | `stale_file` 1 day | Late beyond 3 days of grace (`defaults.freshness.grace_days`) | A file one day late is normal operations, not an incident | 4 days or more (5 and 20 days are caught, low and medium) |
-| `unit_change` 1%, 5% | PSI ≥ 0.10 over fixed distance bins (`defaults.drift`) | Kilometres look like longer trips; when only a few rows change, few rows move to another bin, so the distribution barely moves (PSI 0.002 and 0.024). The rules see nothing either: the distances stay plausible. Measured in Phase 3 (open item O3): shifts of all rows below about +32% stay below 0.10 | A share large enough to move the distribution (20% is caught at PSI 0.29). Row by row: fare per mile drops for a km row, a feature of the Phase 7 anomaly model |
+| `unit_change` 1%, 5% | PSI ≥ 0.10 over fixed distance bins (`defaults.drift`) | Kilometres look like longer trips; when only a few rows change, few rows move to another bin, so the distribution barely moves (PSI 0.002 and 0.024). The rules see nothing either: the distances stay plausible. Measured in Phase 3 (open item O3): shifts of all rows below about +32% stay below 0.10 | A share large enough to move the distribution (20% is caught at PSI 0.29). The Phase 7 anomaly model does not catch it either: fare per mile only falls by a factor of 1.6, well inside its normal spread |
+| `plausible_but_wrong` 5% | The anomaly model flags rows above a threshold set so a clean month flags about 1% | On the test months only about ten short trips qualify, so 5% is 2 rows; one of them is among the rows the model flags in the control month too, and the other scores just below the threshold. An Isolation Forest does not grade how far beyond normal a value is (a fare 3× too high scores like one 2× too high), so broken rows compete with the month's natural oddities for the flag budget | More rows (20% raises the month's flag rate to 2.1% and opens an incident). Rules cannot catch it at all: every value is in range |
 
 ### Why the 1% rule faults are flagged, not caught
 
