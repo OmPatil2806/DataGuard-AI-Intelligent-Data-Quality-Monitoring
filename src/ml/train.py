@@ -14,8 +14,9 @@ learns from the current Silver version of each month; its id is a hash of the se
 those versions, so training again on the same data gives the same model id and the same model.
 
 Saved to models/<dataset>/<model_id>/: model.joblib and metadata.json (features, months and
-Silver versions, medians and quartiles for the explanations, threshold, library version). The
-latest model is named in models/<dataset>/current.json and registered in ml_models.
+Silver versions, medians, quartiles and spreads for the explanations, threshold, library
+version). The latest model is named in models/<dataset>/current.json and registered in
+ml_models.
 Exit codes: 0 trained, 1 a month has no Silver, 2 invalid config.
 """
 
@@ -97,6 +98,18 @@ def sample_features(
         con.unregister("ml_chosen_rows")
 
 
+def spread(values: pd.Series) -> float:
+    """The typical spread of a feature, the unit in which explanations measure a deviation:
+    the interquartile range; for a feature that is nearly constant (total_gap is 0 for most
+    trips), the 5-95% range; failing that 1."""
+    values = values.dropna()
+    for low, high in ((0.25, 0.75), (0.05, 0.95)):
+        width = float(values.quantile(high) - values.quantile(low)) if len(values) else 0.0
+        if width > 0:
+            return width
+    return 1.0
+
+
 def _month_seed(config: MLConfig, period: str) -> int:
     return config.seed * 1_000_003 + int(period.replace("-", ""))
 
@@ -137,6 +150,7 @@ def train(con: duckdb.DuckDBPyConnection, config: MLConfig) -> TrainedModel:
     features = list(config.features)
     medians = train_frame[features].median().fillna(0.0)
     q25, q75 = train_frame[features].quantile(0.25), train_frame[features].quantile(0.75)
+    scales = {f: spread(train_frame[f]) for f in features}
 
     settings = {k: v for k, v in config.model.items()}
     settings["max_samples"] = min(int(settings.get("max_samples", 256)), len(train_frame))
@@ -171,6 +185,7 @@ def train(con: duckdb.DuckDBPyConnection, config: MLConfig) -> TrainedModel:
         "seed": config.seed,
         "model": settings,
         "quartiles": {f: [float(q25[f]), float(q75[f])] for f in features},
+        "scales": scales,
         "target_flag_rate": config.target_flag_rate,
         "threshold": threshold,
         "calibrate_flag_rate": float((calibration_scores > threshold).mean()),

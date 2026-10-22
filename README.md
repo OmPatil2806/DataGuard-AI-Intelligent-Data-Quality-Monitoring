@@ -207,6 +207,7 @@ drop, late file, pickups moved into the previous month, and swapped pickup and d
 ```bash
 python src/ml/features.py --period 2023-01                    # the model's features for a month
 python src/ml/train.py                                        # train on 2023-01 to 2023-03
+python src/ml/score.py                                        # flag unusual trips in every month
 ```
 
 Phase 7 adds an Isolation Forest for trips whose values are each plausible but do not fit
@@ -216,6 +217,11 @@ per minute, total minus the sum of its parts, pickup hour and weekday, passenger
 sample of the train months and sets the threshold on the calibration month (2023-04) so that a
 clean month flags about 1% of its trips. Models are saved to `models/` (ignored by Git) with
 their metadata and registered in `ml_models`; the same data and settings give the same model.
+`score.py` scores every Silver row; rows above the threshold are flagged (a warning: they stay
+in Silver) with the features furthest from normal as the reason, e.g. `fare_per_mile 64.4
+(typical 5.9)`. Flags are in `ml_anomalies`, rates per month in `ml_month_summary`. Scoring
+warns when the model is more than 12 months older than the month, or its training months have
+a newer Silver version.
 
 ## Profile the data
 

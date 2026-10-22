@@ -19,7 +19,7 @@ if __package__ in (None, ""):
 
 from common.config import load_datasets_config  # noqa: E402
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 RUN_STATUSES = ("RUNNING", "SUCCESS", "WARNING", "FAILED")
 FILE_STATUSES = ("REGISTERED", "LOADED", "SKIPPED", "FAILED")
@@ -289,6 +289,38 @@ SCHEMA = [
         target_flag_rate DOUBLE NOT NULL,
         path             VARCHAR NOT NULL,             -- folder with the model and metadata
         metadata         VARCHAR NOT NULL              -- the full metadata as JSON
+    )
+    """,
+    # Schema version 12: anomaly scoring (Phase 7). One row per month, file version and model,
+    # and one row per flagged Silver row (flags are warnings: the row stays in Silver).
+    """
+    CREATE TABLE IF NOT EXISTS ml_month_summary (
+        dataset       VARCHAR NOT NULL,
+        period        VARCHAR NOT NULL,
+        sha256        VARCHAR NOT NULL,
+        model_id      VARCHAR NOT NULL,
+        run_id        VARCHAR NOT NULL,
+        rows_scored   BIGINT NOT NULL,
+        rows_flagged  BIGINT NOT NULL,
+        flag_rate     DOUBLE NOT NULL,
+        mean_score    DOUBLE,
+        warnings      VARCHAR,                      -- model too old, training data changed
+        scored_at     TIMESTAMP NOT NULL,
+        PRIMARY KEY (dataset, period, sha256, model_id),
+        CHECK (rows_flagged <= rows_scored)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS ml_anomalies (
+        dataset        VARCHAR NOT NULL,
+        period         VARCHAR NOT NULL,
+        sha256         VARCHAR NOT NULL,
+        model_id       VARCHAR NOT NULL,
+        bronze_row_id  BIGINT NOT NULL,
+        score          DOUBLE NOT NULL,
+        top_features   VARCHAR[] NOT NULL,          -- most deviating first
+        reasons        VARCHAR NOT NULL,
+        PRIMARY KEY (dataset, period, sha256, model_id, bronze_row_id)
     )
     """,
 ]
