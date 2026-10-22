@@ -168,6 +168,7 @@ python src/gold/lineage.py --period 2023-01 --row 42
 python src/evaluation/fault_injector.py --list                # the planned experiments
 python src/evaluation/run_experiments.py                      # run them all
 python src/evaluation/run_experiments.py --only control,null_spike-5pct
+python src/evaluation/evaluate.py                             # caught, flagged or missed
 ```
 
 `run_experiments.py` reads the history and target months and the zone lookup from
@@ -176,6 +177,13 @@ are unchanged), then gives every experiment its own copy of the history database
 broken month and runs `rebuild.py --months <target>`. Results: one folder per experiment under
 `data/evaluation/experiments/` with the database, the manifest, `experiment.json` (stage exit
 codes and times) and `log.txt`.
+
+`evaluate.py` compares every experiment with its manifest and with the control month: for rule
+faults, how many broken rows were flagged (recall) and how many good rows were flagged too; for
+check faults, whether the check failed and what it observed; whether an incident was raised;
+and the score drop. Outcome: `caught` (an incident was raised), `flagged` (bad rows kept out of
+Silver, but no alert), `missed`. Results: `data/evaluation/evaluation_results.csv` and the
+`evaluation_results` table in `data/evaluation/evaluation.duckdb`.
 
 Phase 6 measures what the pipeline catches. Each experiment breaks a copy of one clean month
 (`target_month` in `configs/faults.yml`) in one known way, at one strength, and records the
