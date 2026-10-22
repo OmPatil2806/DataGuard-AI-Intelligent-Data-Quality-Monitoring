@@ -9,10 +9,11 @@ freshness, volume, drift) raise incidents, and **Gold** monitoring tables feed a
 Version 1 runs on real NYC TLC Yellow Taxi data with deliberately injected faults, so detection
 quality is measured instead of assumed.
 
-**Status:** Phase 5 complete (Gold tables and lineage). Pending a run on the full data: the
-total-amount rule (open item O1), the measured rule results, the drift calibration check
-(notebook 03) and the score calibration (notebook 04). Next: Phase 6, fault injection and
-detection evaluation.
+**Status:** Phase 6 complete (fault injection and detection evaluation: what is caught, what
+is missed and why, in [docs/detection_evaluation.md](docs/detection_evaluation.md)). Pending
+a run on the full data: the total-amount rule (open item O1), the measured rule results, the
+drift and score calibrations (notebooks 03 and 04) and the detection evaluation (notebook 05).
+Next: Phase 7, ML anomaly detection.
 
 ## Setup
 
@@ -187,6 +188,8 @@ Silver, but no alert), `missed`. Results: `data/evaluation/evaluation_results.cs
 `notebooks/05_detection_evaluation.ipynb` shows the outcome per fault and strength as a
 heatmap, the rows flagged per rule fault, what each check observed, the score drop, and what
 the control month raises by itself, and prints a verdict to paste back.
+The result, with an explanation for every miss, is in
+[docs/detection_evaluation.md](docs/detection_evaluation.md).
 
 Phase 6 measures what the pipeline catches. Each experiment breaks a copy of one clean month
 (`target_month` in `configs/faults.yml`) in one known way, at one strength, and records the
