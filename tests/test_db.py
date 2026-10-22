@@ -55,6 +55,7 @@ def test_init_creates_control_tables(con):
         "gold_build_log",
         "incident_events",
         "incidents",
+        "ml_models",
         "pipeline_runs",
         "quality_score_parts",
         "quality_scores",
@@ -144,4 +145,4 @@ def test_upgrade_from_schema_version_1_keeps_data(db_path):
         assert "dataset_metrics" in db.list_tables(con)
         columns = [r[0] for r in con.execute("DESCRIBE file_manifest").fetchall()]
         assert "simulated_delivered_at" in columns
-        assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 10
+        assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 11

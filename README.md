@@ -206,13 +206,16 @@ drop, late file, pickups moved into the previous month, and swapped pickup and d
 
 ```bash
 python src/ml/features.py --period 2023-01                    # the model's features for a month
+python src/ml/train.py                                        # train on 2023-01 to 2023-03
 ```
 
 Phase 7 adds an Isolation Forest for trips whose values are each plausible but do not fit
 together (a high fare for a short trip, a long trip in a few minutes). Its features are SQL
 expressions over Silver in `configs/ml.yml`: trip duration, distance, speed, fare per mile and
-per minute, total minus the sum of its parts, pickup hour and weekday, passenger count. Models
-are saved to `models/` (ignored by Git).
+per minute, total minus the sum of its parts, pickup hour and weekday, passenger count. `train.py` learns from a
+sample of the train months and sets the threshold on the calibration month (2023-04) so that a
+clean month flags about 1% of its trips. Models are saved to `models/` (ignored by Git) with
+their metadata and registered in `ml_models`; the same data and settings give the same model.
 
 ## Profile the data
 

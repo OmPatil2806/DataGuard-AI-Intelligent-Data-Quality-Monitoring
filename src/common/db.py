@@ -19,7 +19,7 @@ if __package__ in (None, ""):
 
 from common.config import load_datasets_config  # noqa: E402
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 RUN_STATUSES = ("RUNNING", "SUCCESS", "WARNING", "FAILED")
 FILE_STATUSES = ("REGISTERED", "LOADED", "SKIPPED", "FAILED")
@@ -272,6 +272,23 @@ SCHEMA = [
         checksum    VARCHAR NOT NULL,
         built_at    TIMESTAMP NOT NULL,
         PRIMARY KEY (run_id, table_name)
+    )
+    """,
+    # Schema version 11: trained anomaly models (Phase 7). model_id is a hash of the settings
+    # and the Silver versions it learnt from, so retraining on the same data gives the same id.
+    """
+    CREATE TABLE IF NOT EXISTS ml_models (
+        model_id         VARCHAR PRIMARY KEY,
+        dataset          VARCHAR NOT NULL,
+        run_id           VARCHAR NOT NULL,             -- the training run
+        trained_at       TIMESTAMP NOT NULL,
+        train_months     VARCHAR NOT NULL,
+        calibrate_month  VARCHAR NOT NULL,
+        train_rows       BIGINT NOT NULL,
+        threshold        DOUBLE NOT NULL,
+        target_flag_rate DOUBLE NOT NULL,
+        path             VARCHAR NOT NULL,             -- folder with the model and metadata
+        metadata         VARCHAR NOT NULL              -- the full metadata as JSON
     )
     """,
 ]
