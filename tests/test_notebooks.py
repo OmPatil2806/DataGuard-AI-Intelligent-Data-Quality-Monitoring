@@ -122,3 +122,30 @@ def test_quality_score_notebook_runs(tmp_path, monkeypatch):
     assert "5 month(s) scored" in text
     assert '"lowest"' in text and '"2023-05"' in text
     assert '"active_incidents"' in text
+
+
+def test_detection_evaluation_notebook_runs(tmp_path, monkeypatch):
+    """A few experiments on clean test months, then the notebook evaluates them."""
+    from evaluation_fixture import make_config, make_sources
+
+    from evaluation import run_experiments
+
+    config = make_config(tmp_path, tmp_path / "workspace")
+    experiments = ["control", "missing_column", "out_of_range-1pct", "volume_drop-20pct",
+                   "stale_file-20d"]  # fmt: skip
+    run_experiments.run_all(config, make_sources(tmp_path / "source"), experiments, out=print)
+
+    monkeypatch.setenv("DATAGUARD_FAULTS_CONFIG", str(tmp_path / "faults.yml"))
+    path = REPO_ROOT / "notebooks" / "05_detection_evaluation.ipynb"
+    notebook = nbformat.read(path, as_version=4)
+    client = NotebookClient(
+        notebook, timeout=300, kernel_name="python3", resources={"metadata": {"path": REPO_ROOT}}
+    )
+    client.execute()
+    outputs = [o for cell in notebook.cells if cell.cell_type == "code" for o in cell.outputs]
+    assert not [o for o in outputs if o.output_type == "error"]
+    text = "".join(str(o.get("text", "")) + str(o.get("data", {})) for o in outputs)
+    assert "4 experiment(s) evaluated of 30 planned" in text
+    assert "control month raises: nothing" in text
+    assert '"volume_drop-20pct"' in text and '"flagged_without_incident"' in text
+    assert (tmp_path / "workspace" / "evaluation_results.csv").is_file()

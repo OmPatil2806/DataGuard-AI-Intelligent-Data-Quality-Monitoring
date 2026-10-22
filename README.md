@@ -184,6 +184,9 @@ check faults, whether the check failed and what it observed; whether an incident
 and the score drop. Outcome: `caught` (an incident was raised), `flagged` (bad rows kept out of
 Silver, but no alert), `missed`. Results: `data/evaluation/evaluation_results.csv` and the
 `evaluation_results` table in `data/evaluation/evaluation.duckdb`.
+`notebooks/05_detection_evaluation.ipynb` shows the outcome per fault and strength as a
+heatmap, the rows flagged per rule fault, what each check observed, the score drop, and what
+the control month raises by itself, and prints a verdict to paste back.
 
 Phase 6 measures what the pipeline catches. Each experiment breaks a copy of one clean month
 (`target_month` in `configs/faults.yml`) in one known way, at one strength, and records the
