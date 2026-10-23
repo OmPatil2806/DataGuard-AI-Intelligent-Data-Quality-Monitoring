@@ -130,3 +130,20 @@ def test_ml_findings_cold_start(tmp_path):
     assert finding.rule_id == "ml_anomaly" and "cold start" in finding.expected
     assert months["2023-02"][1] == {("yellow_taxi", "dataset_check", "ml_anomaly", "")}
     assert ml_findings(con, "run_9999", "yellow_taxi", settings, limits) == {}
+
+
+def test_ml_incident_evidence(env):
+    from investigation import evidence_pack as ep
+
+    with duckdb.connect(str(env["db"])) as con:
+        (incident_id,) = con.execute(
+            "SELECT incident_id FROM incidents WHERE rule_id = 'ml_anomaly'"
+        ).fetchone()
+        pack = ep.build_evidence(con, incident_id)
+        flagged = con.execute(
+            "SELECT count(*) FROM ml_anomalies WHERE period = '2023-05'"
+        ).fetchone()[0]
+    assert pack["definition"]["kind"] == "ml" and "fare_per_mile" in pack["definition"]["features"]
+    assert [h["period"] for h in pack["history"]][-1] == "2023-05"
+    assert pack["impact"]["affected_rows"] == flagged > 0
+    assert pack["samples"] and all(" (typical " in s["reasons"][0] for s in pack["samples"])

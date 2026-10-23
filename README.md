@@ -13,8 +13,8 @@ quality is measured instead of assumed.
 do not fit together, in the pipeline and compared with the rules in
 [docs/ml_anomaly.md](docs/ml_anomaly.md)). Pending a run on the full data: the total-amount rule
 (open item O1), the measured rule results, the drift and score calibrations (notebooks 03 and
-04), the detection evaluation (notebook 05) and the anomaly model (notebook 06). Next: Phase 8,
-the investigation engine.
+04), the detection evaluation (notebook 05) and the anomaly model (notebook 06). In progress:
+Phase 8, the investigation engine (8.1 evidence pack done).
 
 ## Setup
 
@@ -237,6 +237,21 @@ Gold shows the rate (`gold_dataset_health`, `gold_trends`). Tests use their own 
 `notebooks/06_ml_anomaly_detection.ipynb` shows what the model learnt, where the threshold sits,
 the flag rate per month, the most unusual trips and why, and rules only against rules + ML on the
 detection experiments. Details: [docs/ml_anomaly.md](docs/ml_anomaly.md).
+
+## Investigate an incident
+
+```bash
+python src/investigation/evidence_pack.py INC-0004            # the evidence of one incident (JSON)
+python src/investigation/evidence_pack.py --all               # build and store every incident's
+```
+
+Phase 8 starts with an **evidence pack** per incident, gathered from the control tables and the
+Silver and Quarantine files (not Gold): what was found and what the rule or check tests, the
+value in every month (since when), the incident's own history, the file versions, the impact
+(rows affected, score and its change from the month before), incidents of the same problem or
+the same month, and up to five affected rows with their reasons. Month-level findings (schema,
+volume, freshness, drift) have no affected rows. Packs are stored as JSON in
+`investigation_evidence`.
 
 ## Profile the data
 

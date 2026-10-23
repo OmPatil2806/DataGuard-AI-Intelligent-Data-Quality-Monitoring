@@ -19,7 +19,7 @@ if __package__ in (None, ""):
 
 from common.config import load_datasets_config  # noqa: E402
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 RUN_STATUSES = ("RUNNING", "SUCCESS", "WARNING", "FAILED")
 FILE_STATUSES = ("REGISTERED", "LOADED", "SKIPPED", "FAILED")
@@ -321,6 +321,16 @@ SCHEMA = [
         top_features   VARCHAR[] NOT NULL,          -- most deviating first
         reasons        VARCHAR NOT NULL,
         PRIMARY KEY (dataset, period, sha256, model_id, bronze_row_id)
+    )
+    """,
+    # Schema version 13: the evidence gathered for each incident (Phase 8), as JSON. Built again
+    # from the control tables and files whenever the incident is investigated.
+    """
+    CREATE TABLE IF NOT EXISTS investigation_evidence (
+        incident_id  VARCHAR PRIMARY KEY,
+        dataset      VARCHAR NOT NULL,
+        evidence     VARCHAR NOT NULL,
+        built_at     TIMESTAMP NOT NULL
     )
     """,
 ]
