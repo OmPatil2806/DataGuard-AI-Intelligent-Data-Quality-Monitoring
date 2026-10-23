@@ -14,6 +14,7 @@ Silver and Quarantine files only (never Gold, so it can run before Gold is built
     impact      rows of the last month seen, how many are affected, the score and its drop
     similar     earlier or later incidents of the same problem, and others in the same month
     samples     up to five affected rows with their key values and reasons (row-level problems)
+    concentration  where and when the affected rows sit (concentration.py), or "unknown"
 
 Month-level findings (schema, volume, freshness, drift) have no affected rows, so no samples.
 The JSON holds no build times, so building it twice from the same data gives the same text.
@@ -37,6 +38,7 @@ if __package__ in (None, ""):
 from common import db  # noqa: E402
 from common.runs import utc_now  # noqa: E402
 from incidents.incident_manager import Incident, IncidentError, get_incident  # noqa: E402
+from investigation import concentration as conc  # noqa: E402
 from quality.rules import load_rules  # noqa: E402
 from silver.process_silver import current_silver  # noqa: E402
 
@@ -100,16 +102,19 @@ def latest_model(con: duckdb.DuckDBPyConnection, dataset: str, period: str) -> s
     return row[0] if row else None
 
 
-def affected_rows_sql(
+def month_rows(
     con: duckdb.DuckDBPyConnection, incident: Incident, period: str
-) -> str | None:
-    """SQL over the month's current Silver and Quarantine rows that show the incident's problem,
-    or None for a month-level finding or a month without Silver."""
+) -> tuple[str, str] | None:
+    """The rows the incident's rule or check looked at in a month, as a SQL source, and the
+    condition that marks a row as affected; None for a month-level finding or a month without
+    Silver. Row rules and NULL rates look at Silver and Quarantine, the model at Silver only."""
     if not is_row_level(incident):
         return None
     files = current_silver(con, incident.dataset).get(period)
     if files is None:
         return None
+    if incident.rule_id == "ml_anomaly":
+        files = files[:1]
     source = (
         f"read_parquet([{', '.join(_sql_path(p) for p in files)}], union_by_name = true, "
         "hive_partitioning = false)"
@@ -133,6 +138,17 @@ def affected_rows_sql(
             f"'{incident.dataset}' AND period = '{period}' AND sha256 = '{sha}' "
             f"AND model_id = '{model}')"
         )
+    return source, where
+
+
+def affected_rows_sql(
+    con: duckdb.DuckDBPyConnection, incident: Incident, period: str
+) -> str | None:
+    """SQL over the month's rows that show the incident's problem (see month_rows)."""
+    rows = month_rows(con, incident, period)
+    if rows is None:
+        return None
+    source, where = rows
     return f"SELECT * FROM {source} WHERE {where}"
 
 
@@ -413,6 +429,42 @@ def samples(
     return result
 
 
+def concentration(
+    con: duckdb.DuckDBPyConnection,
+    incident: Incident,
+    settings: conc.ConcentrationSettings | None = None,
+) -> dict[str, Any]:
+    """Where and when the problem sits in the last month seen."""
+    settings = settings or conc.load_settings()
+    period = incident.last_seen_period
+    if incident.rule_id == "volume":
+        files = current_silver(con, incident.dataset).get(period)
+        if files is None:
+            return {"analysed": False, "reason": "no Silver for the month", "period": period}
+        source = (
+            f"read_parquet([{', '.join(_sql_path(p) for p in files)}], union_by_name = true, "
+            "hive_partitioning = false)"
+        )
+        days = conc.low_days(con, source, period, settings)
+        if days["analysed"]:
+            days["verdict"] = (
+                f"when: {len(days['days'])} day(s) with fewer than "
+                f"{100 * settings.low_day_share:.0f}% of the median day's rows"
+                if days["days"]
+                else "unknown: no day is far below the median, rows are missing evenly"
+            )
+        else:
+            days["verdict"] = f"not analysed: {days['reason']}"
+        return {"period": period, **days}
+    rows = month_rows(con, incident, period)
+    if rows is None:
+        reason = "month-level finding" if not is_row_level(incident) else "no rows to compare"
+        return {"analysed": False, "reason": reason, "period": period, "findings": [],
+                "verdict": f"not analysed: {reason}"}  # fmt: skip
+    found = conc.segments(con, *rows, settings)
+    return {"period": period, **found, "verdict": conc.verdict(found)}
+
+
 def build_evidence(con: duckdb.DuckDBPyConnection, incident_id: str) -> dict[str, Any]:
     """The evidence pack of one incident."""
     incident = get_incident(con, incident_id)
@@ -426,6 +478,7 @@ def build_evidence(con: duckdb.DuckDBPyConnection, incident_id: str) -> dict[str
         "similar": similar(con, incident),
         "row_level": is_row_level(incident),
         "samples": samples(con, incident),
+        "concentration": concentration(con, incident),
     }
 
 

@@ -147,3 +147,7 @@ def test_ml_incident_evidence(env):
     assert [h["period"] for h in pack["history"]][-1] == "2023-05"
     assert pack["impact"]["affected_rows"] == flagged > 0
     assert pack["samples"] and all(" (typical " in s["reasons"][0] for s in pack["samples"])
+    where = pack["concentration"]  # Silver only: the rows the model scored
+    assert where["analysed"] and where["affected_rows"] == flagged
+    assert where["rows"] == query(env, "SELECT rows_scored FROM ml_month_summary "
+                                  "WHERE period = '2023-05'").iloc[0, 0]  # fmt: skip

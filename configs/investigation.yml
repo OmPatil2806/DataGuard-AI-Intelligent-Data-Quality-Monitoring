@@ -1,0 +1,31 @@
+# Incident investigation (Phase 8).
+#
+# Concentration ("where" and "when"): the affected rows of an incident are compared with all
+# rows of the month, segment by segment. A segment is reported only when the problem is clearly
+# concentrated in it; a problem spread evenly over the month gets no "where", only "unknown".
+
+concentration:
+  # One dimension per entry: SQL over a Silver or Quarantine row (standard and derived columns).
+  # kind: where (a part of the data) or when (a part of the month).
+  dimensions:
+    vendor: {sql: "VendorID", kind: where}
+    pickup_borough: {sql: "pickup_borough", kind: where}
+    pickup_zone: {sql: "pickup_zone", kind: where}
+    dropoff_zone: {sql: "dropoff_zone", kind: where}
+    payment_type: {sql: "payment_type", kind: where}
+    ratecode: {sql: "RatecodeID", kind: where}
+    pickup_date: {sql: "CAST(pickup_date AS VARCHAR)", kind: when}
+    pickup_weekday: {sql: "dayname(tpep_pickup_datetime)", kind: when}
+    pickup_hour: {sql: "pickup_hour", kind: when}
+
+  # A segment is a concentration when all of these hold:
+  min_rows: 20          # rows of the month in the segment
+  min_share: 0.5        # share of the affected rows that fall in the segment
+  min_ratio: 3.0        # affected rate inside the segment / affected rate outside it
+  min_z: 4.0            # two-proportion z statistic (inside against outside)
+  max_findings: 3       # strongest concentrations reported, by z
+
+  # Volume incidents: days of the month whose row count is below this share of the month's
+  # median day. Only for months with at least min_rows_per_day rows on the median day.
+  low_day_share: 0.5
+  min_rows_per_day: 50

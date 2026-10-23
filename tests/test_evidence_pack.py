@@ -26,7 +26,7 @@ def env(tmp_path_factory):
 def test_one_pack_per_incident_with_every_section(env):
     assert sorted(env["packs"]) == [f"INC-000{i}" for i in range(1, 7)]
     sections = {"incident", "definition", "history", "events", "versions", "impact", "similar",
-                "row_level", "samples"}  # fmt: skip
+                "row_level", "samples", "concentration"}  # fmt: skip
     for pack in env["packs"].values():
         assert set(pack) == sections
         json.dumps(pack)  # JSON-serialisable as built
@@ -47,6 +47,9 @@ def test_null_rate_incident(env):
     assert all(s["values"]["fare_amount"] is None for s in pack["samples"])
     same_month = {s["incident_id"] for s in pack["similar"]["same_month"]}
     assert same_month == {"INC-0004", "INC-0005"}  # the drift of the same month
+    where = pack["concentration"]  # the NULLs are planted at random: no "where"
+    assert where["analysed"] and where["findings"] == []
+    assert where["verdict"].startswith("unknown") and where["affected_rows"] == 137
 
 
 def test_row_rule_incident(env):
@@ -71,6 +74,7 @@ def test_month_level_findings_have_no_samples(env):
         pack = env["packs"][incident_id]
         assert not pack["row_level"] and pack["samples"] == [], incident_id
         assert "affected_rows" not in pack["impact"], incident_id
+        assert not pack["concentration"]["analysed"], incident_id
     volume = env["packs"]["INC-0001"]
     assert len(volume["history"]) == 5 and volume["incident"]["occurrences"] == 4
     schema = env["packs"]["INC-0002"]

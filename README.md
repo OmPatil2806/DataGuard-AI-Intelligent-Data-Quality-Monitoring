@@ -14,7 +14,7 @@ do not fit together, in the pipeline and compared with the rules in
 [docs/ml_anomaly.md](docs/ml_anomaly.md)). Pending a run on the full data: the total-amount rule
 (open item O1), the measured rule results, the drift and score calibrations (notebooks 03 and
 04), the detection evaluation (notebook 05) and the anomaly model (notebook 06). In progress:
-Phase 8, the investigation engine (8.1 evidence pack done).
+Phase 8, the investigation engine (8.1 evidence pack, 8.2 where and when done).
 
 ## Setup
 
@@ -252,6 +252,13 @@ value in every month (since when), the incident's own history, the file versions
 the same month, and up to five affected rows with their reasons. Month-level findings (schema,
 volume, freshness, drift) have no affected rows. Packs are stored as JSON in
 `investigation_evidence`.
+
+Each pack also says **where and when** the problem sits (`concentration`): the affected rows
+are compared with all rows of the month by vendor, zones, payment type, rate code, date, weekday
+and hour (`configs/investigation.yml`). A segment is named only when it holds most of the
+affected rows at several times the rate outside it, far beyond chance (z ≥ 4); a problem spread
+evenly over the month is "unknown", never a guess. For volume incidents, days far below the
+month's median day show whether rows are missing on some days or thinly everywhere.
 
 ## Profile the data
 
