@@ -9,6 +9,7 @@ paths:
   silver: data/silver
   quarantine: data/quarantine
   duckdb: data/dataguard.duckdb
+  reports: data/reports
 
 datasets:
   yellow_taxi:

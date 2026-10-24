@@ -518,6 +518,35 @@ LINEAGE = GoldTable(
     volatile=lineage.VOLATILE,
 )
 
+INVESTIGATIONS = GoldTable(
+    name="gold_investigations",
+    description="One row per investigated incident: likely cause, where/when, actions, report",
+    sql="""
+        WITH acts AS (
+            SELECT incident_id, count(*) AS actions,
+                   count_if(status = 'pending_approval') AS actions_pending,
+                   count_if(status = 'approved') AS actions_approved,
+                   count_if(status = 'rejected') AS actions_rejected,
+                   count_if(status = 'done') AS actions_done
+            FROM investigation_actions GROUP BY ALL
+        )
+        SELECT v.incident_id, v.dataset, i.title, i.severity, i.status, v.period,
+               v.playbook, v.explained, v.top_cause, v.confidence, v.headline, v.where_verdict,
+               coalesce(a.actions, 0)::BIGINT AS actions,
+               coalesce(a.actions_pending, 0)::BIGINT AS actions_pending,
+               coalesce(a.actions_approved, 0)::BIGINT AS actions_approved,
+               coalesce(a.actions_rejected, 0)::BIGINT AS actions_rejected,
+               coalesce(a.actions_done, 0)::BIGINT AS actions_done,
+               v.evidence_md5, v.report_path, v.run_id AS investigation_run_id
+        FROM investigations v
+        JOIN incidents i USING (incident_id)
+        LEFT JOIN acts a USING (incident_id)
+    """,
+    order_by="incident_id",
+    # the evidence hash covers delivery times, which differ between two loads of the same file
+    volatile=("evidence_md5", "report_path", "investigation_run_id"),
+)
+
 # In build order: later tables may read earlier ones.
 TABLES: list[GoldTable] = [
     MONTHS,
@@ -528,6 +557,7 @@ TABLES: list[GoldTable] = [
     INCIDENT_SUMMARY,
     INCIDENT_MONTHLY,
     LINEAGE,
+    INVESTIGATIONS,
 ]
 
 

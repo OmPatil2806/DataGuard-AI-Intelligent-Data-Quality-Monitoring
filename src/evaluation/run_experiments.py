@@ -169,7 +169,7 @@ def _rebuild(
     argv = [
         "--dataset", dataset, "--lookups", str(lookups),
         "--silver", str(folder / "silver"), "--quarantine", str(folder / "quarantine"),
-        "--database", str(folder / DATABASE),
+        "--reports", str(folder / "reports"), "--database", str(folder / DATABASE),
     ]  # fmt: skip
     if months:
         argv += ["--months", months]

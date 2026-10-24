@@ -1,4 +1,4 @@
-"""Rebuild everything after Bronze in one step: Silver, checks, rules, incidents, score, Gold.
+"""Rebuild everything after Bronze in one step: Silver to incidents, score, investigations, Gold.
 
     python src/gold/rebuild.py                  # every month in Bronze
     python src/gold/rebuild.py --force          # also rewrite Silver versions already written
@@ -13,7 +13,9 @@ Each stage is the same command a user would run by hand, in this order:
                                                      trained with src/ml/train.py)
     5 incidents  src/incidents/incidents_cli.py update
     6 score      src/quality/score.py
-    7 gold       src/gold/monitoring_tables.py       every Gold table, one transaction
+    7 investigate src/investigation/investigate.py   evidence, explanation, actions, report
+                                                     for every incident
+    8 gold       src/gold/monitoring_tables.py       every Gold table, one transaction
 
 --months limits the stages that work month by month (silver, checks, rules, ml); the checks still
 compare with every earlier month in the database, and the incidents, score and Gold stages
@@ -41,6 +43,7 @@ if __package__ in (None, ""):
 
 from gold import monitoring_tables  # noqa: E402
 from incidents import incidents_cli  # noqa: E402
+from investigation import investigate  # noqa: E402
 from ml import score as ml_score  # noqa: E402
 from quality import run_checks, run_rules, score  # noqa: E402
 from silver import process_silver  # noqa: E402
@@ -61,6 +64,7 @@ def stages(args: argparse.Namespace) -> list[tuple[str, Callable[[list[str]], in
     quarantine = ["--quarantine", str(args.quarantine)] if args.quarantine else []
     force = ["--force"] if args.force else []
     months = ["--months", args.months] if args.months else []
+    reports = ["--reports", str(args.reports)] if args.reports else []
     return [
         (
             "silver",
@@ -72,6 +76,7 @@ def stages(args: argparse.Namespace) -> list[tuple[str, Callable[[list[str]], in
         ("ml", ml_score.main, [*months, *database, "--if-trained"]),
         ("incidents", incidents_cli.main, [*database, *dataset, "update"]),
         ("score", score.main, [*dataset, *database]),
+        ("investigate", investigate.main, [*dataset, *reports, *database]),
         ("gold", monitoring_tables.main, database),
     ]
 
@@ -95,14 +100,14 @@ def summary(results: list[StageResult]) -> str:
     status = {0: "ok", 1: "FAILED (later stages ran on what is there)", 2: "STOPPED"}
     lines = ["", "rebuild summary:"]
     lines += [
-        f"  {r.name:<10} {r.seconds:7.1f}s  {status.get(r.exit_code, r.exit_code)}" for r in results
+        f"  {r.name:<11} {r.seconds:7.1f}s  {status.get(r.exit_code, r.exit_code)}" for r in results
     ]
     return "\n".join(lines)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Rebuild Silver, checks, incidents, score and Gold."
+        description="Rebuild Silver, checks, incidents, score, investigations and Gold."
     )
     parser.add_argument("--dataset", default="yellow_taxi", help="dataset name in datasets.yml")
     parser.add_argument("--lookups", type=Path, help="folder with lookup files (default: incoming)")
@@ -115,6 +120,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--months", help="e.g. 2023-06 or 2023-01:2023-03: silver, checks and rules only"
+    )
+    parser.add_argument(
+        "--reports", type=Path, help="investigation reports folder (default: paths.reports)"
     )
     parser.add_argument("--database", type=Path, help="DuckDB file (default: paths.duckdb)")
     return parser.parse_args(argv)

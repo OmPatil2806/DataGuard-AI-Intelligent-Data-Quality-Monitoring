@@ -19,13 +19,14 @@ if __package__ in (None, ""):
 
 from common.config import load_datasets_config  # noqa: E402
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 RUN_STATUSES = ("RUNNING", "SUCCESS", "WARNING", "FAILED")
 FILE_STATUSES = ("REGISTERED", "LOADED", "SKIPPED", "FAILED")
 SEVERITY_LEVELS = ("critical", "high", "medium", "low")
 INCIDENT_SOURCES = ("row_rule", "dataset_check")
 INCIDENT_STATUSES = ("OPEN", "INVESTIGATING", "RESOLVED")
+ACTION_STATUSES = ("pending_approval", "approved", "rejected", "done")
 INCIDENT_EVENTS = (
     "opened",  # a new incident
     "seen_again",  # the same problem failed again (de-duplicated)
@@ -331,6 +332,40 @@ SCHEMA = [
         dataset      VARCHAR NOT NULL,
         evidence     VARCHAR NOT NULL,
         built_at     TIMESTAMP NOT NULL
+    )
+    """,
+    # Schema version 14: the explanation of each incident (Phase 8) and its suggested actions.
+    # Built again by every investigation; an action keeps its decision while it is suggested.
+    """
+    CREATE TABLE IF NOT EXISTS investigations (
+        incident_id    VARCHAR PRIMARY KEY,
+        dataset        VARCHAR NOT NULL,
+        run_id         VARCHAR NOT NULL,             -- the investigation run
+        period         VARCHAR NOT NULL,             -- the month explained (last seen)
+        playbook       VARCHAR,
+        explained      BOOLEAN NOT NULL,             -- false: cause unknown
+        top_cause      VARCHAR,
+        confidence     VARCHAR CHECK (confidence IN ('high', 'medium', 'low')),
+        headline       VARCHAR NOT NULL,
+        where_verdict  VARCHAR,
+        explanation    VARCHAR NOT NULL,             -- the full explanation as JSON
+        evidence_md5   VARCHAR NOT NULL,             -- of the evidence pack it was built from
+        report_path    VARCHAR,
+        built_at       TIMESTAMP NOT NULL
+    )
+    """,
+    f"""
+    CREATE TABLE IF NOT EXISTS investigation_actions (
+        incident_id  VARCHAR NOT NULL,
+        action_id    VARCHAR NOT NULL,
+        kind         VARCHAR NOT NULL,
+        text         VARCHAR NOT NULL,
+        for_cause    VARCHAR NOT NULL,
+        status       VARCHAR NOT NULL CHECK (status IN {_in(ACTION_STATUSES)}),
+        created_at   TIMESTAMP NOT NULL,
+        decided_at   TIMESTAMP,
+        decided_by   VARCHAR,
+        PRIMARY KEY (incident_id, action_id)
     )
     """,
 ]

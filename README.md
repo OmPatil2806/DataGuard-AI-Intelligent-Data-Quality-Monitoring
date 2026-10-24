@@ -14,7 +14,7 @@ do not fit together, in the pipeline and compared with the rules in
 [docs/ml_anomaly.md](docs/ml_anomaly.md)). Pending a run on the full data: the total-amount rule
 (open item O1), the measured rule results, the drift and score calibrations (notebooks 03 and
 04), the detection evaluation (notebook 05) and the anomaly model (notebook 06). In progress:
-Phase 8, the investigation engine (8.1 evidence pack, 8.2 where and when, 8.3 explainer done).
+Phase 8, the investigation engine (8.1 evidence pack, 8.2 where and when, 8.3 explainer, 8.4 reports done).
 
 ## Setup
 
@@ -128,7 +128,7 @@ category, how much the score depends on the weights, and the incident timeline. 
 ## Gold tables
 
 ```bash
-python src/gold/rebuild.py                                    # Silver, checks, rules, ML, incidents, score, Gold
+python src/gold/rebuild.py                                    # Silver to score, investigations, Gold
 python src/gold/monitoring_tables.py                          # rebuild every Gold table only
 python src/gold/monitoring_tables.py --list                   # the Gold tables and what they hold
 ```
@@ -152,6 +152,7 @@ and timestamps, so two builds of the same data match. Every column is described 
 | `gold_incident_summary` | incident | Status, severity, months seen, active and until resolved, how it was resolved, recurrence chain, investigation and notes |
 | `gold_incident_monthly` | dataset and month | Incidents opened, recurring, seen and resolved, and active at the end of the month by severity |
 | `gold_lineage` | dataset and month | Source URL, file and SHA-256, Bronze, Silver and Quarantine files, the runs, and row counts read from the files: `ok`, `not_processed`, `missing_file` or `mismatch` |
+| `gold_investigations` | incident | Likely cause and confidence, where/when, suggested actions by decision, and the report |
 
 The health label is `critical` below a score of 80 or with a critical finding, `warning` below 95
 or with a high or medium finding, otherwise `healthy` (limits in `configs/severity_weights.yml`,
@@ -244,6 +245,8 @@ detection experiments. Details: [docs/ml_anomaly.md](docs/ml_anomaly.md).
 python src/investigation/evidence_pack.py INC-0004            # the evidence of one incident (JSON)
 python src/investigation/evidence_pack.py --all               # build and store every incident's
 python src/investigation/explainer.py --all                   # likely cause and next steps
+python src/investigation/investigate.py                       # all of it, stored, with reports
+python src/investigation/investigate.py --decide INC-0004 contact_provider approved --by om
 ```
 
 Phase 8 starts with an **evidence pack** per incident, gathered from the control tables and the
@@ -269,6 +272,15 @@ evidence behind it, e.g. *"trip_distance looks like it is partly or fully in kil
 of miles (mean ×1.61): the median grew by about 1.6"*. When no cause reaches medium confidence
 the answer is "cause unknown". Suggested actions (contact the provider, check the mapping,
 reprocess the month) are all `pending_approval`; nothing runs them.
+
+`investigate.py` does all of this for every incident in one tracked run, and is the
+`investigate` stage of `rebuild.py` (after the score, before Gold): the explanation goes to
+`investigations`, the actions to `investigation_actions`, a Markdown report per incident to
+`data/reports/investigations/<dataset>/` (cause, where/when, actions, since when, impact,
+metrics, sample rows, file versions, related incidents), and a summary row to
+`gold_investigations`. A decision on an action (`approved`, `rejected`, `done`, with who) is
+kept while the explanation still suggests it. Reports hold no times: the same data gives the
+same report.
 
 ## Profile the data
 

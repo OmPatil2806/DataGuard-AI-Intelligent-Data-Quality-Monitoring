@@ -25,7 +25,9 @@ def stage_by_stage(tmp_path_factory):
     """Every command run by hand, then Gold."""
     database = run_pipeline(tmp_path_factory.mktemp("by_hand"))
     from gold import monitoring_tables
+    from investigation import investigate
 
+    assert investigate.main(["--database", str(database)]) == 0
     assert monitoring_tables.main(["--database", str(database)]) == 0
     return database
 
@@ -55,7 +57,7 @@ def rebuilt(stage_by_stage, tmp_path_factory):
 
 def test_one_step_gives_the_same_gold_as_stage_by_stage(stage_by_stage, rebuilt):
     by_hand, one = checksums(stage_by_stage), checksums(rebuilt[0])
-    assert len(by_hand) == 8
+    assert len(by_hand) == 9
     assert by_hand == one  # other folders, other timestamps: identical content
 
 
@@ -91,6 +93,7 @@ def test_stages_run_in_order(monkeypatch, tmp_path, capsys):
         (rebuild.ml_score, "ml"),
         (rebuild.incidents_cli, "incidents"),
         (rebuild.score, "score"),
+        (rebuild.investigate, "investigate"),
         (rebuild.monitoring_tables, "gold"),
     ]:
         monkeypatch.setattr(module, "main", lambda argv, name=name: calls.append((name, argv)) or 0)
@@ -98,7 +101,7 @@ def test_stages_run_in_order(monkeypatch, tmp_path, capsys):
         rebuild.main(["--database", str(tmp_path / "d.duckdb"), "--lookups", "L", "--force"]) == 0
     )
     assert [c[0] for c in calls] == [
-        "silver", "checks", "rules", "ml", "incidents", "score", "gold",
+        "silver", "checks", "rules", "ml", "incidents", "score", "investigate", "gold",
     ]  # fmt: skip
     argv = dict(calls)
     assert "--force" in argv["silver"] and "--force" not in argv["checks"]
@@ -112,10 +115,10 @@ def test_stages_run_in_order(monkeypatch, tmp_path, capsys):
     argv = dict(calls)
     for stage in ("silver", "checks", "rules", "ml"):
         assert argv[stage][argv[stage].index("--months") + 1] == "2023-06", stage
-    for stage in ("incidents", "score", "gold"):
+    for stage in ("incidents", "score", "investigate", "gold"):
         assert "--months" not in argv[stage], stage
     out = capsys.readouterr().out
-    assert "rebuild summary:" in out and out.count(" ok") >= 7
+    assert "rebuild summary:" in out and out.count(" ok") >= 8
 
 
 def test_failed_stage_continues_but_config_error_stops(monkeypatch, capsys):

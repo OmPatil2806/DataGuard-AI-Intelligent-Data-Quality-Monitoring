@@ -105,3 +105,17 @@ def test_main(env, capsys):
             ep.main(["--database", str(env["db"])])
     finally:
         env["con"] = duckdb.connect(str(env["db"]))
+
+
+def test_plain_values():
+    import numpy as np
+    import pandas as pd
+
+    assert [ep._plain(v) for v in (pd.NA, pd.NaT, np.nan, None)] == [None] * 4
+    assert ep._plain(np.int64(3)) == 3 and ep._plain(pd.Timestamp("2023-06-01 10:00")) == (
+        "2023-06-01 10:00:00"
+    )
+    assert (
+        json.loads(ep.to_json({"a": pd.NA, "b": np.float64(1.5), "c": {1, 2}.__class__}))["a"]
+        is None
+    )

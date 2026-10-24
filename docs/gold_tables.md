@@ -137,6 +137,21 @@ by the severity they had reached by then.
 | `loaded_run_id`, `silver_run_id`, `rule_run_id`, `check_run_id` | The runs (volatile) |
 | `scored` | The month has a quality score |
 
+### `gold_investigations`: one row per investigated incident
+
+Built from `investigations` and `investigation_actions`, written by the `investigate` stage
+(`src/investigation/investigate.py`, Phase 8).
+
+| Column | Meaning |
+|---|---|
+| `title`, `severity`, `status` | From the incident |
+| `period` | The month explained: the last month the incident was seen |
+| `playbook`, `top_cause`, `confidence` | The playbook used and its best cause (`configs/playbooks.yml`) |
+| `explained` | `false` when no cause reaches medium confidence: the cause is unknown |
+| `headline`, `where_verdict` | The one-line explanation and the where/when answer |
+| `actions`, `actions_pending`, `actions_approved`, `actions_rejected`, `actions_done` | Suggested actions by decision |
+| `evidence_md5`, `report_path`, `investigation_run_id` | The evidence it was built from, the Markdown report and the run (volatile) |
+
 ## Row lineage
 
 Every Bronze, Silver and Quarantine row keeps `bronze_row_id` (its 1-based position in the

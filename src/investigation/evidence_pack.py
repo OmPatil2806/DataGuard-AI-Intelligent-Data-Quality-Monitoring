@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 import duckdb
+import pandas as pd
 
 if __package__ in (None, ""):
     # Allow running this file directly: make src/ importable.
@@ -76,16 +77,19 @@ def _sql_path(path: Path) -> str:
 
 
 def _plain(value: Any) -> Any:
-    """A JSON-friendly value: timestamps and dates as ISO text, NaN as None."""
-    if value is None:
+    """A JSON-friendly value: timestamps and dates as ISO text, NaN, NaT and pd.NA as None."""
+    if value is None or (pd.api.types.is_scalar(value) and pd.isna(value)):
         return None
     if hasattr(value, "isoformat"):
         return value.isoformat(sep=" ") if hasattr(value, "hour") else value.isoformat()
-    if isinstance(value, float) and value != value:
-        return None
     if hasattr(value, "item"):  # numpy scalars
         return value.item()
     return value
+
+
+def _json_default(value: Any) -> Any:
+    plain = _plain(value)
+    return str(value) if plain is value else plain
 
 
 def is_row_level(incident: Incident) -> bool:
@@ -520,7 +524,7 @@ def build_evidence(con: duckdb.DuckDBPyConnection, incident_id: str) -> dict[str
 
 
 def to_json(evidence: dict[str, Any]) -> str:
-    return json.dumps(evidence, indent=2, default=_plain, ensure_ascii=False)
+    return json.dumps(evidence, indent=2, default=_json_default, ensure_ascii=False)
 
 
 def store(con: duckdb.DuckDBPyConnection, evidence: dict[str, Any]) -> None:
