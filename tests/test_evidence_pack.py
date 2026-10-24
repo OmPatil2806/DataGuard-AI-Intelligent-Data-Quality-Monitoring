@@ -26,7 +26,7 @@ def env(tmp_path_factory):
 def test_one_pack_per_incident_with_every_section(env):
     assert sorted(env["packs"]) == [f"INC-000{i}" for i in range(1, 7)]
     sections = {"incident", "definition", "history", "events", "versions", "impact", "similar",
-                "row_level", "samples", "concentration"}  # fmt: skip
+                "row_level", "samples", "concentration", "metrics"}  # fmt: skip
     for pack in env["packs"].values():
         assert set(pack) == sections
         json.dumps(pack)  # JSON-serialisable as built

@@ -13,6 +13,7 @@ Silver and Quarantine files only (never Gold, so it can run before Gold is built
     versions    the file versions of the months the incident was seen in
     impact      rows of the last month seen, how many are affected, the score and its drop
     similar     earlier or later incidents of the same problem, and others in the same month
+    metrics     the column's NULL rate, mean, median and p99 per month (or rows, for volume)
     samples     up to five affected rows with their key values and reasons (row-level problems)
     concentration  where and when the affected rows sit (concentration.py), or "unknown"
 
@@ -375,18 +376,53 @@ def similar(con: duckdb.DuckDBPyConnection, incident: Incident) -> dict[str, Any
     ).fetchall()
     month = con.execute(
         """
-        SELECT DISTINCT i.incident_id, i.title, i.severity
+        SELECT DISTINCT i.incident_id, i.title, i.severity, i.source, i.rule_id, i.column_name
         FROM incident_events e JOIN incidents i USING (incident_id)
-        WHERE i.dataset = ? AND e.period = ? AND e.event IN ('opened', 'seen_again')
+        WHERE i.dataset = ? AND e.period IN (?, ?) AND e.event IN ('opened', 'seen_again')
         AND i.incident_id != ? ORDER BY i.incident_id
         """,
-        [incident.dataset, incident.first_seen_period, incident.incident_id],
+        [
+            incident.dataset,
+            incident.first_seen_period,
+            incident.last_seen_period,
+            incident.incident_id,
+        ],
     ).fetchall()
     keys = ("incident_id", "severity", "status", "first_seen", "last_seen")
+    month_keys = ("incident_id", "title", "severity", "source", "rule_id", "column")
     return {
         "same_problem": [dict(zip(keys, row, strict=True)) for row in same],
-        "same_month": [{"incident_id": i, "title": t, "severity": s} for i, t, s in month],
+        "same_month": [dict(zip(month_keys, row, strict=True)) for row in month],
     }
+
+
+COLUMN_METRICS = ("null_rate", "mean", "median", "p99")
+VOLUME_METRICS = ("rows", "rows_per_day")
+
+
+def metrics(con: duckdb.DuckDBPyConnection, incident: Incident) -> dict[str, list[dict]]:
+    """The dataset metrics behind the finding, per month of the current file versions: the
+    column's NULL rate, mean, median and 99th percentile, or the month's rows for volume."""
+    if incident.column_name:
+        names, column = COLUMN_METRICS, incident.column_name
+    elif incident.rule_id == "volume":
+        names, column = VOLUME_METRICS, ""
+    else:
+        return {}
+    shas = _current_shas(con, incident.dataset)
+    rows = con.execute(
+        f"""
+        SELECT metric, period, sha256, value FROM dataset_metrics
+        WHERE dataset = ? AND column_name = ? AND bin = ''
+        AND metric IN ({", ".join("?" * len(names))}) ORDER BY metric, period
+        """,
+        [incident.dataset, column, *names],
+    ).fetchall()
+    result: dict[str, list[dict]] = {}
+    for metric, period, sha, value in rows:
+        if shas.get(period) == sha and value is not None:
+            result.setdefault(metric, []).append({"period": period, "value": round(value, 6)})
+    return {m: result[m] for m in names if m in result}
 
 
 def samples(
@@ -476,6 +512,7 @@ def build_evidence(con: duckdb.DuckDBPyConnection, incident_id: str) -> dict[str
         "versions": versions(con, incident),
         "impact": impact(con, incident),
         "similar": similar(con, incident),
+        "metrics": metrics(con, incident),
         "row_level": is_row_level(incident),
         "samples": samples(con, incident),
         "concentration": concentration(con, incident),

@@ -14,7 +14,7 @@ do not fit together, in the pipeline and compared with the rules in
 [docs/ml_anomaly.md](docs/ml_anomaly.md)). Pending a run on the full data: the total-amount rule
 (open item O1), the measured rule results, the drift and score calibrations (notebooks 03 and
 04), the detection evaluation (notebook 05) and the anomaly model (notebook 06). In progress:
-Phase 8, the investigation engine (8.1 evidence pack, 8.2 where and when done).
+Phase 8, the investigation engine (8.1 evidence pack, 8.2 where and when, 8.3 explainer done).
 
 ## Setup
 
@@ -243,6 +243,7 @@ detection experiments. Details: [docs/ml_anomaly.md](docs/ml_anomaly.md).
 ```bash
 python src/investigation/evidence_pack.py INC-0004            # the evidence of one incident (JSON)
 python src/investigation/evidence_pack.py --all               # build and store every incident's
+python src/investigation/explainer.py --all                   # likely cause and next steps
 ```
 
 Phase 8 starts with an **evidence pack** per incident, gathered from the control tables and the
@@ -259,6 +260,15 @@ and hour (`configs/investigation.yml`). A segment is named only when it holds mo
 affected rows at several times the rate outside it, far beyond chance (z ≥ 4); a problem spread
 evenly over the month is "unknown", never a guess. For volume incidents, days far below the
 month's median day show whether rows are missing on some days or thinly everywhere.
+
+The **explainer** turns a pack into a likely cause, without a language model: facts from the
+pack (detail text, metric ratios against earlier months, concentration, other incidents of the
+month, shared file versions) are tested against the playbooks in `configs/playbooks.yml`. Each
+cause scores its prior plus the weights of the signals that hold, and is written out with the
+evidence behind it, e.g. *"trip_distance looks like it is partly or fully in kilometres instead
+of miles (mean ×1.61): the median grew by about 1.6"*. When no cause reaches medium confidence
+the answer is "cause unknown". Suggested actions (contact the provider, check the mapping,
+reprocess the month) are all `pending_approval`; nothing runs them.
 
 ## Profile the data
 

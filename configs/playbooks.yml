@@ -1,0 +1,275 @@
+# Playbooks: likely causes and next steps per kind of incident (Phase 8).
+#
+# The TemplateExplainer (src/investigation/explainer.py) turns an incident's evidence pack into
+# facts (see FACTS in explainer.py), picks the first playbook whose `match` fits the incident and
+# scores each of its causes:
+#
+#     score = prior + the weights of the signals that hold (at most 1)
+#
+# A cause is a candidate only when all its `requires` hold. Candidates are ranked by score;
+# confidence is high from 0.7, medium from 0.4, low below. When no candidate reaches medium the
+# explanation says the cause is unknown and lists what to look at. Actions are suggestions only:
+# every one is `pending_approval` and nothing runs it.
+#
+# Conditions: {fact: name, <test>: value} with test one of
+#   is, in, contains (text or list), not_contains, gt, lt, between: [low, high], exists
+# Templates: {fact} or {fact:.2f}; a missing fact prints as "?".
+
+thresholds:
+  high: 0.7
+  medium: 0.4
+
+actions:
+  contact_provider: {kind: contact_provider, text: "Ask the data provider about {title} in {period}"}
+  check_mapping: {kind: change_config, text: "Check the column mapping and types in configs/datasets.yml"}
+  reprocess: {kind: reprocess, text: "Reprocess {period} after the fix: python src/gold/rebuild.py --months {period}"}
+  redownload: {kind: reprocess, text: "Download {period} again and compare the SHA-256 with the current version"}
+  check_download_job: {kind: investigate, text: "Check the download schedule and the provider's release notes"}
+  inspect_samples: {kind: investigate, text: "Look at the sample rows in the evidence pack and trace one: python src/gold/lineage.py --period {period} --row <id>"}
+  inspect_segment: {kind: investigate, text: "Look at {where_dimension} = {where_value}: it holds {where_share:.0%} of the affected rows"}
+  inspect_days: {kind: investigate, text: "Look at the {low_days} low day(s) of {period} in the evidence pack"}
+  update_lookup: {kind: change_config, text: "Check whether the zone lookup is out of date (taxi_zone_lookup.csv)"}
+  review_rule: {kind: change_rule, text: "Review the rule {rule_id} in configs/quality_rules.yml: is the limit still right?"}
+  review_baseline: {kind: change_rule, text: "Review the limits of the {rule_id} check: the baseline may need more months"}
+  accept_change: {kind: accept, text: "If the change is real, accept it: let the baseline learn the new level"}
+  review_model: {kind: change_rule, text: "Check the flagged trips; retrain the model if normal trips changed (python src/ml/train.py)"}
+  deduplicate: {kind: reprocess, text: "Ask for a corrected file; until then the duplicates stay in Quarantine"}
+
+playbooks:
+  - id: schema
+    match: {rule_id: [schema]}
+    causes:
+      - id: column_missing
+        text: "A required column is not delivered: {detail}"
+        prior: 0.5
+        requires: [{fact: detail, contains: "is missing"}]
+        signals:
+          - {fact: same_month, contains: null_rate, weight: 0.3, say: "the NULL rate rose in the same month"}
+        actions: [contact_provider, check_mapping, reprocess]
+      - id: column_renamed
+        text: "The provider renamed a column: {detail}"
+        prior: 0.6
+        requires: [{fact: detail, contains: "renamed"}]
+        signals:
+          - {fact: occurrences, is: 1, weight: 0.1, say: "first time this change is seen"}
+        actions: [check_mapping, reprocess]
+      - id: type_changed
+        text: "A column changed its type: {detail}"
+        prior: 0.5
+        requires: [{fact: detail, contains: " type "}]
+        actions: [check_mapping]
+      - id: column_removed_or_added
+        text: "The set of columns changed: {detail}"
+        prior: 0.4
+        requires: [{fact: detail, contains_any: ["removed", "new column", "is back"]}]
+        actions: [check_mapping]
+
+  - id: volume
+    match: {rule_id: [volume]}
+    causes:
+      - id: cold_start_limits
+        text: "The row count is outside the fixed limits used before enough months are known"
+        prior: 0.5
+        requires: [{fact: detail, contains: "cold-start"}]
+        signals:
+          - {fact: occurrences, gt: 1, weight: 0.2, say: "seen in {occurrences} months in a row"}
+        actions: [review_baseline]
+      - id: missing_days
+        text: "Rows are missing on {low_days} day(s) of the month: a partial delivery"
+        prior: 0.3
+        requires: [{fact: low_days, gt: 0}, {fact: rows_per_day_ratio, lt: 1}]
+        signals:
+          - {fact: low_days, gt: 0, weight: 0.4, say: "{low_days} day(s) far below the median day"}
+        actions: [inspect_days, redownload, contact_provider]
+      - id: rows_missing_evenly
+        text: "Rows are missing evenly across the month ({rows_per_day_ratio:.0%} of the usual rows): a filtered or incomplete extract"
+        prior: 0.4
+        requires: [{fact: rows_per_day_ratio, lt: 1}, {fact: detail, contains: "drop"}]
+        signals:
+          - {fact: low_days, is: 0, weight: 0.3, say: "no single day is far below the others"}
+        actions: [redownload, contact_provider]
+      - id: rows_added
+        text: "The month has more rows than usual ({rows_per_day_ratio:.0%}): duplicated delivery or real growth"
+        prior: 0.4
+        requires: [{fact: detail, contains: "rise"}]
+        signals:
+          - {fact: same_month, contains: trip_unique, weight: 0.3, say: "duplicate trips found in the same month"}
+        actions: [redownload, accept_change]
+
+  - id: freshness
+    match: {rule_id: [freshness]}
+    causes:
+      - id: late_delivery
+        text: "The file arrived {late_days:.1f} day(s) after it was expected"
+        prior: 0.6
+        requires: [{fact: late_days, gt: 0}]
+        signals:
+          - {fact: late_days, gt: 7, weight: 0.2, say: "more than a week late"}
+        actions: [check_download_job, contact_provider]
+
+  - id: null_rate
+    match: {rule_id: [null_rate]}
+    causes:
+      - id: column_missing_upstream
+        text: "{column} is empty because the schema changed in the same month"
+        prior: 0.3
+        requires: [{fact: same_month, contains: schema}]
+        signals:
+          - {fact: null_rate_ratio, gt: 50, weight: 0.2, say: "{column} went from almost never to mostly empty"}
+          - {fact: affected_share, gt: 0.95, weight: 0.3, say: "{affected_share:.0%} of the rows are empty"}
+        actions: [check_mapping, contact_provider, reprocess]
+      - id: segment_sends_nulls
+        text: "One part of the data sends empty {column}: {where_dimension} = {where_value}"
+        prior: 0.3
+        requires: [{fact: concentrated, is: true}, {fact: where_kind, is: where}]
+        signals:
+          - {fact: where_share, gt: 0.9, weight: 0.3, say: "{where_share:.0%} of the empty values are there"}
+          - {fact: where_dimension, is: vendor, weight: 0.1, say: "a single vendor"}
+        actions: [inspect_segment, contact_provider]
+      - id: nulls_in_period
+        text: "{column} is empty in one part of the month: {where_dimension} = {where_value}"
+        prior: 0.3
+        requires: [{fact: concentrated, is: true}, {fact: where_kind, is: when}]
+        signals:
+          - {fact: where_share, gt: 0.9, weight: 0.3, say: "{where_share:.0%} of the empty values are there"}
+        actions: [inspect_segment, contact_provider]
+      - id: source_nulls
+        text: "{column} is empty in {affected_share:.1%} of the rows, spread over the whole month: a change in the provider's extract"
+        prior: 0.4
+        requires: [{fact: concentrated, is: false}]
+        signals:
+          - {fact: same_month, not_contains: schema, weight: 0.1, say: "the schema did not change"}
+        actions: [inspect_samples, contact_provider]
+
+  - id: drift
+    match: {rule_id: [drift]}
+    causes:
+      - id: unit_change
+        text: "{column} looks like it is partly or fully in kilometres instead of miles (mean ×{mean_ratio:.2f}, p99 ×{p99_ratio:.2f})"
+        prior: 0.3
+        requires: [{fact: column, is: trip_distance}, {fact: mean_ratio, between: [1.05, 1.8]}]
+        signals:
+          - {fact: median_ratio, between: [1.45, 1.75], weight: 0.4, say: "the median grew by about 1.6, the factor from miles to kilometres"}
+          - {fact: p99_ratio, between: [1.2, 1.75], weight: 0.2, say: "the longest trips grew too (p99 ×{p99_ratio:.2f})"}
+        actions: [inspect_samples, contact_provider]
+      - id: nulls_shift_distribution
+        text: "The distribution of {column} moved because many values are empty"
+        prior: 0.3
+        requires: [{fact: same_month_columns, contains: "null_rate:{column}"}]
+        signals:
+          - {fact: null_rate_ratio, gt: 10, weight: 0.3, say: "the NULL rate of {column} rose sharply"}
+        actions: [inspect_samples]
+      - id: scale_error
+        text: "{column} changed by a large factor (median ×{median_ratio:.2f}): a unit or decimal error"
+        prior: 0.3
+        requires: [{fact: median_ratio, exists: true}]
+        signals:
+          - {fact: median_ratio, gt: 3, weight: 0.4, say: "the median grew more than three times"}
+          - {fact: median_ratio, lt: 0.33, weight: 0.4, say: "the median fell to less than a third"}
+        actions: [inspect_samples, contact_provider]
+      - id: real_change
+        text: "Trips really changed (a new tariff, a season, an event): {detail}"
+        prior: 0.2
+        requires: []
+        signals:
+          - {fact: median_ratio, between: [0.8, 1.25], weight: 0.1, say: "the median moved only a little"}
+        actions: [accept_change]
+
+  - id: duplicates
+    match: {rule_id: [trip_unique]}
+    causes:
+      - id: duplicate_delivery
+        text: "Trips are delivered twice ({affected_share:.1%} of the rows)"
+        prior: 0.6
+        requires: []
+        signals:
+          - {fact: concentrated, is: false, weight: 0.1, say: "duplicates spread over the month"}
+          - {fact: where_kind, is: when, weight: 0.1, say: "concentrated on {where_dimension} = {where_value}: a period sent again"}
+        actions: [deduplicate, contact_provider]
+
+  - id: outside_month
+    match: {rule_id: [pickup_in_file_month]}
+    causes:
+      - id: wrong_file
+        text: "The file holds another month's trips: almost every pickup is outside {period}"
+        prior: 0.3
+        requires: [{fact: affected_share, gt: 0.9}]
+        signals:
+          - {fact: shared_file, is: true, weight: 0.4, say: "the same file (SHA-256) is registered for more than one month"}
+          - {fact: affected_share, gt: 0.99, weight: 0.2, say: "{affected_share:.0%} of the rows are outside the month"}
+        actions: [redownload, contact_provider]
+      - id: trips_from_other_months
+        text: "Some trips are dated outside {period} ({affected_share:.1%}): late records or wrong timestamps"
+        prior: 0.5
+        requires: [{fact: affected_share, lt: 0.9}]
+        signals:
+          - {fact: where_kind, is: when, weight: 0.1, say: "concentrated on {where_dimension} = {where_value}"}
+        actions: [inspect_samples, review_rule]
+
+  - id: swapped_times
+    match: {rule_id: [dropoff_not_before_pickup]}
+    causes:
+      - id: times_swapped
+        text: "Pickup and dropoff times are swapped in {affected_share:.1%} of the trips"
+        prior: 0.6
+        requires: []
+        signals:
+          - {fact: concentrated, is: true, weight: 0.1, say: "concentrated in {where_dimension} = {where_value}"}
+        actions: [inspect_samples, contact_provider]
+
+  - id: referential
+    match: {category: [referential]}
+    causes:
+      - id: unknown_location
+        text: "Trips point to zones that are not in the zone lookup ({affected_share:.1%} of the rows)"
+        prior: 0.5
+        requires: []
+        signals:
+          - {fact: concentrated, is: true, weight: 0.2, say: "concentrated in {where_dimension} = {where_value}"}
+        actions: [update_lookup, inspect_samples, contact_provider]
+
+  - id: validity
+    match: {category: [validity]}
+    causes:
+      - id: out_of_range_values
+        text: "Values out of range in {affected_share:.1%} of the rows ({rule_id}): sign errors, refunds or bad entries"
+        prior: 0.5
+        requires: []
+        signals:
+          - {fact: concentrated, is: true, weight: 0.2, say: "concentrated in {where_dimension} = {where_value}"}
+        actions: [inspect_samples, contact_provider, review_rule]
+
+  - id: ml_anomaly
+    match: {rule_id: [ml_anomaly]}
+    causes:
+      - id: fare_does_not_fit_trip
+        text: "Fares that do not fit the trip: {ml_top_reason} leads the unusual trips"
+        prior: 0.3
+        requires: [{fact: ml_top_reason, in: [fare_per_mile, fare_per_minute]}]
+        signals:
+          - {fact: concentrated, is: true, weight: 0.2, say: "concentrated in {where_dimension} = {where_value}"}
+          - {fact: incidents_same_month, is: 0, weight: 0.3, say: "no rule or check fired in the same month: values are in range but do not fit together"}
+        actions: [inspect_samples, contact_provider, review_model]
+      - id: totals_do_not_add_up
+        text: "Totals that do not add up to their parts lead the unusual trips (open item O1)"
+        prior: 0.4
+        requires: [{fact: ml_top_reason, is: total_gap}]
+        actions: [inspect_samples]
+      - id: trips_unusual
+        text: "More unusual trips than usual, led by {ml_top_reason}"
+        prior: 0.3
+        requires: []
+        signals:
+          - {fact: concentrated, is: true, weight: 0.2, say: "concentrated in {where_dimension} = {where_value}"}
+        actions: [inspect_samples, review_model]
+
+  - id: default
+    match: {}
+    causes:
+      - id: rule_failures_up
+        text: "More rows fail {rule_id} than usual ({affected_share:.1%})"
+        prior: 0.3
+        requires: [{fact: row_level, is: true}]
+        signals:
+          - {fact: concentrated, is: true, weight: 0.2, say: "concentrated in {where_dimension} = {where_value}"}
+        actions: [inspect_samples, review_rule]
