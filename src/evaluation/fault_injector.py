@@ -82,6 +82,11 @@ class FaultSpec:
     strengths: tuple[float | None, ...]
     params: dict[str, Any]
     expect: tuple[Expect, ...]
+    # The explanation that counts as right (Phase 8): playbook cause ids (configs/playbooks.yml),
+    # and where the problem sits: None (not judged), "none" (spread: no where/when may be
+    # claimed) or {dimension, value} (that segment must be named).
+    causes: tuple[str, ...] = ()
+    where: str | dict[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -118,6 +123,29 @@ def _strengths(raw: Any, kind: str, where: str) -> list[float]:
         if kind == "days" and v <= 0:
             raise ConfigError(f"{where}: days must be above 0, got {v}")
     return values
+
+
+def _explain(raw: Any, at: str) -> tuple[tuple[str, ...], str | dict[str, str] | None]:
+    """The explain block of a fault: the right causes and the expected where/when."""
+    if raw is None:
+        return (), None
+    if not isinstance(raw, dict):
+        raise ConfigError(f"{at}.explain must be a mapping")
+    causes = raw.get("causes") or []
+    if not isinstance(causes, list) or not all(isinstance(c, str) for c in causes):
+        raise ConfigError(f"{at}.explain.causes must be a list of cause ids")
+    from investigation.explainer import load_playbooks  # the evaluation judges the explainer
+
+    known = {c.id for book in load_playbooks().playbooks for c in book.causes}
+    unknown = [c for c in causes if c not in known]
+    if unknown:
+        raise ConfigError(f"{at}.explain.causes: not in configs/playbooks.yml: {unknown}")
+    where = raw.get("where")
+    if where is not None and where != "none":
+        if not isinstance(where, dict) or set(where) != {"dimension", "value"}:
+            raise ConfigError(f"{at}.explain.where must be none or {{dimension, value}}")
+        where = {"dimension": str(where["dimension"]), "value": str(where["value"])}
+    return tuple(causes), where
 
 
 def load_faults_config(path: Path | None = None) -> FaultsConfig:
@@ -188,6 +216,7 @@ def load_faults_config(path: Path | None = None) -> FaultsConfig:
         params = raw.get("params") or {}
         if not isinstance(params, dict):
             raise ConfigError(f"{at}.params must be a mapping")
+        causes, where_expected = _explain(raw.get("explain"), at)
         faults[fault_id] = FaultSpec(
             fault_id,
             category,
@@ -196,6 +225,8 @@ def load_faults_config(path: Path | None = None) -> FaultsConfig:
             strengths,
             params,
             tuple(expects),
+            causes,
+            where_expected,
         )
     if not faults:
         raise ConfigError(f"{where}: no faults configured")

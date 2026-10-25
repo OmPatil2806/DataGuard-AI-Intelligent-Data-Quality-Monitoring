@@ -108,6 +108,8 @@ def segments(
         return result
     result["analysed"] = True
     result["overall_rate"] = round(affected / total, 6)
+    # fewer affected rows than a segment needs cannot show a concentration beyond chance
+    result["few_affected"] = affected < settings.min_rows
     found = []
     for dim in settings.dimensions:
         rows = con.execute(
@@ -184,6 +186,11 @@ def verdict(where: dict[str, Any]) -> str:
     """One line on the strongest concentration, or why there is none."""
     if not where.get("analysed"):
         return f"not analysed: {where.get('reason', 'no affected rows')}"
+    if not where["findings"] and where.get("few_affected"):
+        return (
+            f"unknown: only {where['affected_rows']} affected row(s), too few to tell whether "
+            "they gather in one part of the data"
+        )
     if not where["findings"]:
         return (
             "unknown: the affected rows are spread over the month, no segment holds most of "

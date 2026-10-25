@@ -134,11 +134,12 @@ playbooks:
           - {fact: where_share, gt: 0.9, weight: 0.3, say: "{where_share:.0%} of the empty values are there"}
         actions: [inspect_segment, contact_provider]
       - id: source_nulls
-        text: "{column} is empty in {affected_share:.1%} of the rows, spread over the whole month: a change in the provider's extract"
+        text: "{column} is empty in {affected_share:.1%} of the rows, with no part of the data standing out: a change in the provider's extract"
         prior: 0.4
         requires: [{fact: concentrated, is: false}]
         signals:
           - {fact: same_month, not_contains: schema, weight: 0.1, say: "the schema did not change"}
+          - {fact: few_affected, is: false, weight: 0.1, say: "enough empty values to see that they are spread over the month"}
         actions: [inspect_samples, contact_provider]
 
   - id: drift

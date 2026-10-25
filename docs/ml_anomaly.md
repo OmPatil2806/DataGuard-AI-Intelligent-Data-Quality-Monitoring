@@ -6,7 +6,7 @@ not fit together, such as $45 for a one-mile ride. An **Isolation Forest** (scik
 what normal Silver trips look like and scores every row by how unusual the combination of its
 values is.
 
-**Done when** a table compares rules only with rules + ML on all 11 faults, including false
+**Done when** a table compares rules only with rules + ML on all the faults, including false
 alarms: see [Rules only against rules + ML](#rules-only-against-rules--ml).
 
 ## Commands
@@ -96,13 +96,13 @@ as flagged when a rule newly flags a broken row. **ML** counts as caught when an
 incident is new, as flagged when the model flags a broken row it does not already flag in the
 control. A row flagged anyway is never credited.
 
-On the test months (34 experiments, every row used):
+On the test months (36 experiments, every row used):
 
 | | Rules only | ML only | Rules + ML |
 |---|---|---|---|
-| 🟢 caught | 20 | 2 | **21** |
-| 🟡 flagged | 4 | 1 | **5** |
-| 🔴 missed | 9 | 30 | **7** |
+| 🟢 caught | 23 | 2 | **24** |
+| 🟡 flagged | 4 | 2 | **5** |
+| 🔴 missed | 9 | 32 | **7** |
 
 **False alarms:** in the unbroken control month the model flags 1.06% of the rows (2 of 188,
 its calibrated normal level) and raises no incident; the rules raise nothing either.
@@ -116,6 +116,9 @@ its calibrated normal level) and raises no incident; the rules raise nothing eit
 | `null_spike-1pct` | 🟢 caught | 🔴 missed | 🟢 caught | 0% | |
 | `null_spike-5pct` | 🟢 caught | 🔴 missed | 🟢 caught | 0% | |
 | `null_spike-20pct` | 🟢 caught | 🟢 caught | 🟢 caught | 10% | |
+| `null_spike_vendor-1pct` | 🟢 caught | 🔴 missed | 🟢 caught | 0% | |
+| `null_spike_vendor-5pct` | 🟢 caught | 🟡 flagged | 🟢 caught | 20% | |
+| `null_spike_vendor-20pct` | 🟢 caught | 🔴 missed | 🟢 caught | 0% | |
 | `orphan_location-1pct` | 🟡 flagged | 🔴 missed | 🟡 flagged | 0% | |
 | `orphan_location-5pct` | 🟢 caught | 🔴 missed | 🟢 caught | 0% | |
 | `orphan_location-20pct` | 🟢 caught | 🔴 missed | 🟢 caught | 0% | |

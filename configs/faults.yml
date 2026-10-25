@@ -27,6 +27,10 @@ strengths:
 # expect:          detectors that should fire: a row rule id, a dataset check (schema, volume,
 #                  freshness, null_rate, drift; column for per-column checks), or ml: anomaly
 #                  (the anomaly model of Phase 7)
+# explain:         the explanation that counts as right (Phase 8, explanation_accuracy.py):
+#                  causes = playbook cause ids (configs/playbooks.yml); where = none (a fault
+#                  spread at random: no where/when may be claimed) or {dimension, value} (the
+#                  segment that must be named); left out where the place is not judged
 faults:
   missing_column:
     category: schema
@@ -34,6 +38,7 @@ faults:
     description: "A required column is not delivered"
     params: {column: passenger_count}
     expect: [{check: schema}]
+    explain: {causes: [column_missing]}
 
   null_spike:
     category: completeness
@@ -41,6 +46,15 @@ faults:
     description: "fare_amount is empty in a share of rows"
     params: {column: fare_amount}
     expect: [{check: null_rate, column: fare_amount}]
+    explain: {causes: [source_nulls], where: none}
+
+  null_spike_vendor:
+    category: completeness
+    kind: share
+    description: "fare_amount is empty in a share of one vendor's rows"
+    params: {column: fare_amount, segment_column: VendorID, segment_value: 2}
+    expect: [{check: null_rate, column: fare_amount}]
+    explain: {causes: [segment_sends_nulls], where: {dimension: vendor, value: "2"}}
 
   duplicate_rows:
     category: uniqueness
@@ -48,6 +62,7 @@ faults:
     description: "A share of rows is delivered twice"
     params: {}
     expect: [{rule: trip_unique}]
+    explain: {causes: [duplicate_delivery], where: none}
 
   out_of_range:
     category: validity
@@ -55,6 +70,7 @@ faults:
     description: "fare_amount is negative in a share of rows"
     params: {column: fare_amount}
     expect: [{rule: fare_not_negative}]
+    explain: {causes: [out_of_range_values], where: none}
 
   orphan_location:
     category: referential
@@ -62,6 +78,7 @@ faults:
     description: "PULocationID points to a zone that does not exist"
     params: {column: PULocationID, value: 999}
     expect: [{rule: pickup_zone_known}]
+    explain: {causes: [unknown_location], where: none}
 
   unit_change:
     category: drift
@@ -70,6 +87,7 @@ faults:
     description: "trip_distance delivered in kilometres instead of miles for a share of rows"
     params: {column: trip_distance, factor: 1.609344}
     expect: [{check: drift, column: trip_distance}]
+    explain: {causes: [unit_change]}
 
   volume_drop:
     category: volume
@@ -78,6 +96,7 @@ faults:
     description: "A share of the month's rows is missing"
     params: {}
     expect: [{check: volume}]
+    explain: {causes: [rows_missing_evenly]}
 
   stale_file:
     category: freshness
@@ -85,6 +104,7 @@ faults:
     description: "The file arrives late"
     params: {}
     expect: [{check: freshness}]
+    explain: {causes: [late_delivery]}
 
   pickup_outside_month:
     category: pattern
@@ -92,6 +112,8 @@ faults:
     description: "Pickup times moved to the previous month for a share of rows"
     params: {}
     expect: [{rule: pickup_in_file_month}]
+    # the moved trips sit on other dates by design, so the place is not judged
+    explain: {causes: [trips_from_other_months]}
 
   swapped_times:
     category: consistency
@@ -99,6 +121,7 @@ faults:
     description: "Pickup and dropoff times swapped for a share of rows"
     params: {}
     expect: [{rule: dropoff_not_before_pickup}]
+    explain: {causes: [times_swapped], where: none}
 
   plausible_but_wrong:
     category: ml_anomaly
@@ -106,3 +129,5 @@ faults:
     description: "Fares tripled on short trips, total raised to match: every value in range"
     params: {factor: 3, max_distance: 3.0}
     expect: [{ml: anomaly}]
+    # short trips only, which can gather in some zones: the place is not judged
+    explain: {causes: [fare_does_not_fit_trip]}

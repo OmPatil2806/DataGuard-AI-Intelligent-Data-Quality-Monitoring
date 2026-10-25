@@ -99,7 +99,9 @@ def test_small_segments_and_trivial_months():
     frame = month(5)
     frame.loc[frame.index[:5], "pickup_zone"] = "tiny"
     frame.loc[frame.index[:5], "broken"] = True  # 5 rows: below min_rows
-    assert all(f["value"] != "tiny" for f in analyse(frame)["findings"])
+    few = analyse(frame)
+    assert all(f["value"] != "tiny" for f in few["findings"])
+    assert few["few_affected"] and "only 5 affected row(s), too few" in conc.verdict(few)
     frame["broken"] = False
     assert analyse(frame)["reason"] == "no affected rows"
     frame["broken"] = True

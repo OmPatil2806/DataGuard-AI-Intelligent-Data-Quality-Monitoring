@@ -14,7 +14,7 @@ do not fit together, in the pipeline and compared with the rules in
 [docs/ml_anomaly.md](docs/ml_anomaly.md)). Pending a run on the full data: the total-amount rule
 (open item O1), the measured rule results, the drift and score calibrations (notebooks 03 and
 04), the detection evaluation (notebook 05) and the anomaly model (notebook 06). In progress:
-Phase 8, the investigation engine (8.1 evidence pack, 8.2 where and when, 8.3 explainer, 8.4 reports done).
+Phase 8, the investigation engine (8.1 evidence pack, 8.2 where and when, 8.3 explainer, 8.4 reports, 8.5 explanation accuracy done).
 
 ## Setup
 
@@ -172,6 +172,7 @@ python src/evaluation/fault_injector.py --list                # the planned expe
 python src/evaluation/run_experiments.py                      # run them all
 python src/evaluation/run_experiments.py --only control,null_spike-5pct
 python src/evaluation/evaluate.py                             # caught, flagged or missed
+python src/evaluation/explanation_accuracy.py                 # was the injected cause named?
 ```
 
 `run_experiments.py` reads the history and target months and the zone lookup from
@@ -200,11 +201,12 @@ should fire. A control experiment keeps the month unbroken. Experiments run in t
 folders under `data/evaluation/`, never in the real pipeline's database. The same seed always
 gives the same sample and the same broken rows.
 
-The eleven faults (`src/evaluation/faults.py`), one per check category: missing column, NULL
+The faults (`src/evaluation/faults.py`), one per check category: missing column, NULL
 spike, duplicate rows, out-of-range fares, orphan location IDs, distances in kilometres, volume
 drop, late file, pickups moved into the previous month, swapped pickup and dropoff times, and
 "plausible but wrong" fares (tripled on short trips with the total raised to match, every value
-in range: only the anomaly model can see it). The history trains the anomaly model, so every
+in range: only the anomaly model can see it); plus `null_spike_vendor`, NULL fares in one
+vendor's rows only, for the where/when of Phase 8. The history trains the anomaly model, so every
 experiment is also scored by it, and `evaluate.py` compares **rules only** with **rules + ML**
 per experiment, with the model's flags in the control month as its false alarms.
 
@@ -281,6 +283,12 @@ metrics, sample rows, file versions, related incidents), and a summary row to
 `gold_investigations`. A decision on an action (`approved`, `rejected`, `done`, with who) is
 kept while the explanation still suggests it. Reports hold no times: the same data gives the
 same report.
+
+`explanation_accuracy.py` checks the explanations against the injected faults: each fault in
+`configs/faults.yml` names the causes that count as right and where the problem sits. On the
+test months the right cause comes first in 22 of the 24 detected experiments (top-1 92%), no
+randomly spread fault gets a where/when, and the vendor fault at 20% is placed in vendor 2
+([docs/detection_evaluation.md](docs/detection_evaluation.md#explanation-accuracy)).
 
 ## Profile the data
 

@@ -55,6 +55,7 @@ FACTS = {
     "where_dimension": "its dimension, e.g. vendor",
     "where_value": "its value, e.g. 2",
     "where_share": "its share of the affected rows",
+    "few_affected": "too few affected rows to show a concentration",
     "low_days": "days far below the month's median day (volume incidents)",
     "late_days": "days the file arrived late (freshness incidents)",
     "shared_file": "one file version (SHA-256) is registered for more than one month",
@@ -248,6 +249,7 @@ def facts(evidence: dict[str, Any]) -> dict[str, Any]:
     where = evidence.get("concentration") or {}
     findings = where.get("findings") or []
     f["concentrated"] = bool(findings) if where.get("analysed") else None
+    f["few_affected"] = where.get("few_affected")
     if findings:
         top = findings[0]
         f |= {

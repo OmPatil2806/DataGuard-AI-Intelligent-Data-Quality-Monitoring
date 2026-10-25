@@ -1,4 +1,4 @@
-"""The eleven faults of the detection evaluation, one per check category.
+"""The faults of the detection evaluation: one per check category, and a concentrated variant.
 
 Every fault gets the sampled rows of the target month (a pandas frame with pyarrow types),
 its strength and params from configs/faults.yml, and a random generator seeded for the
@@ -6,6 +6,8 @@ experiment. It changes only the rows it reports, and only the columns it is abou
 
     missing_column        drop a required column                         month level
     null_spike            empty a column in a share of rows (rows that had a value)
+    null_spike_vendor     the same, only in the rows of one segment (one vendor): a
+                          concentrated fault, for the where/when of the investigation (Phase 8)
     duplicate_rows        deliver a share of rows twice, each copy right after its original
     out_of_range          make a share of positive fares negative
     orphan_location       point a share of pickups to a zone that does not exist
@@ -109,6 +111,17 @@ def null_spike(frame, strength, params, rng):
     rows = choose(_eligible(frame[column].notna()), strength, rng)
     frame.loc[rows, column] = None
     return FaultResult(frame, affected=rows.tolist(), note=f"{column} set to NULL")
+
+
+@fault("null_spike_vendor")
+def null_spike_vendor(frame, strength, params, rng):
+    column = _column(frame, params)
+    segment = _column(frame, {"column": params.get("segment_column")})
+    inside = frame[segment].astype("string") == str(params["segment_value"])
+    rows = choose(_eligible(frame[column].notna() & inside), strength, rng)
+    frame.loc[rows, column] = None
+    note = f"{column} set to NULL where {segment} = {params['segment_value']}"
+    return FaultResult(frame, affected=rows.tolist(), note=note)
 
 
 @fault("duplicate_rows")

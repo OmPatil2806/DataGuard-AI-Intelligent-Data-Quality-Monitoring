@@ -12,11 +12,12 @@ what was broken (the ground truth) and with the same month unbroken (the control
 
 | Command | What it does |
 |---|---|
-| `python src/evaluation/fault_injector.py --list` | The planned experiments (31) |
+| `python src/evaluation/fault_injector.py --list` | The planned experiments (37, the control included) |
 | `python src/evaluation/run_experiments.py` | Builds the clean history once, then runs every experiment |
 | `python src/evaluation/run_experiments.py --only control,null_spike-5pct` | Some experiments only |
 | `python src/evaluation/evaluate.py` | Scores the experiments: caught, flagged or missed |
 | `notebooks/05_detection_evaluation.ipynb` | Heatmap, rows flagged, what each check saw, score impact, verdict |
+| `python src/evaluation/explanation_accuracy.py` | Phase 8: does the investigation name the injected cause? ([Explanation accuracy](#explanation-accuracy)) |
 
 ## How an experiment works
 
@@ -44,12 +45,13 @@ what was broken (the ground truth) and with the same month unbroken (the control
 
 A check failing, or an incident seen, in the control month too is never credited.
 
-## The eleven faults
+## The faults
 
 | Fault | Category | What it does | Strengths | Expected detector |
 |---|---|---|---|---|
 | `missing_column` | schema | Drops `passenger_count` | – | schema check |
 | `null_spike` | completeness | Empties `fare_amount` | 1%, 5%, 20% | NULL-rate check on `fare_amount` |
+| `null_spike_vendor` | completeness | Empties `fare_amount` in vendor 2's rows only: a concentrated fault (Phase 8) | 1%, 5%, 20% of that vendor's rows | NULL-rate check on `fare_amount` |
 | `duplicate_rows` | uniqueness | Delivers rows twice, each copy after its original | 1%, 5%, 20% | rule `trip_unique` |
 | `out_of_range` | validity | Makes positive fares negative | 1%, 5%, 20% | rule `fare_not_negative` |
 | `orphan_location` | referential | `PULocationID` = 999 | 1%, 5%, 20% | rule `pickup_zone_known` |
@@ -66,8 +68,8 @@ every check is also shown catching its fault.
 
 ## Results on the test data
 
-All 34 experiments on the test months: the fixture's 200 trips moved into each month of
-2023-01 to 2023-06, every row used (`sample_fraction` 1.0). **21 caught, 5 flagged, 7 missed,
+All 36 experiments on the test months: the fixture's 200 trips moved into each month of
+2023-01 to 2023-06, every row used (`sample_fraction` 1.0). **24 caught, 5 flagged, 7 missed,
 0 errors.** The control month raises nothing: no false alarms. Rule faults: 100% of the
 broken rows flagged at every strength, 0 good rows flagged.
 
@@ -77,6 +79,9 @@ broken rows flagged at every strength, 0 good rows flagged.
 | `null_spike-1pct` | check null_rate (fare_amount) | 🟢 caught | high | 1.00% (limit: 0.00% + at most 0.1 points) | 7.6 |
 | `null_spike-5pct` | check null_rate (fare_amount) | 🟢 caught | high | 5.00% (limit: 0.00% + at most 0.1 points) | 7.5 |
 | `null_spike-20pct` | check null_rate (fare_amount) | 🟢 caught | high | 20.00% (limit: 0.00% + at most 0.1 points) | 7.5 |
+| `null_spike_vendor-1pct` | check null_rate (fare_amount) | 🟢 caught | medium | 0.50% (limit: 0.00% + at most 0.1 points) | 4.8 |
+| `null_spike_vendor-5pct` | check null_rate (fare_amount) | 🟢 caught | high | 2.50% (limit: 0.00% + at most 0.1 points) | 7.3 |
+| `null_spike_vendor-20pct` | check null_rate (fare_amount) | 🟢 caught | high | 9.50% (limit: 0.00% + at most 0.1 points) | 7.3 |
 | `duplicate_rows-1pct` | rule trip_unique | 🟡 flagged | – | 2/2 rows (100%), 0 extra | 0.1 |
 | `duplicate_rows-5pct` | rule trip_unique | 🟢 caught | medium | 10/10 rows (100%), 0 extra | 0.4 |
 | `duplicate_rows-20pct` | rule trip_unique | 🟢 caught | medium | 40/40 rows (100%), 0 extra | 1.2 |
@@ -139,6 +144,50 @@ pickup 0.027%, pickups outside the month 0.007%, unknown locations and duplicate
 caught for all of them except negative fares**, which stays flagged: a 1% rise on a 1.26%
 baseline is within the rule's normal range by design. The real run confirms this.
 
+## Explanation accuracy
+
+Phase 8. Every fault in `configs/faults.yml` also says which playbook causes
+(`configs/playbooks.yml`) count as the right explanation, and where the problem sits
+(`explain.where`: `none` for a fault spread at random, or the segment that must be named).
+The rebuild of every experiment already investigates its incidents;
+`src/evaluation/explanation_accuracy.py` reads the investigation of the incident the fault's
+detector raised (new against the control) and judges it. Accuracy counts the detected
+experiments only: a fault no detector caught is a detection miss above, not the explainer's.
+
+On the test months, **24 of 36 experiments detected: the right cause first in 22 (top-1 92%),
+among the three best in 22 (top-3 92%), 2 wrong, 0 unknown.** No fault spread at random gets a
+where/when (0 false where in 12); the vendor fault at 20% is placed in vendor 2.
+
+| Experiment | Best cause | Confidence | Judged | Where/when claimed | Place |
+|---|---|---|---|---|---|
+| `missing_column` | `column_missing` | high | ✅ top-1 | | not judged |
+| `null_spike-1pct`, `-5pct`, `-20pct` | `source_nulls` | medium | ✅ top-1 | none | ✅ none, as it should |
+| `null_spike_vendor-1pct`, `-5pct` | `source_nulls` | medium | ❌ wrong | none | ❌ missed |
+| `null_spike_vendor-20pct` | `segment_sends_nulls` | high | ✅ top-1 | vendor = 2 | ✅ found |
+| `duplicate_rows-5pct`, `-20pct` | `duplicate_delivery` | high | ✅ top-1 | none | ✅ none |
+| `out_of_range-5pct`, `-20pct` | `out_of_range_values` | medium | ✅ top-1 | none | ✅ none |
+| `orphan_location-5pct`, `-20pct` | `unknown_location` | medium | ✅ top-1 | none | ✅ none |
+| `swapped_times-1pct`, `-5pct`, `-20pct` | `times_swapped` | medium | ✅ top-1 | none | ✅ none |
+| `pickup_outside_month-5pct`, `-20pct` | `trips_from_other_months` | medium | ✅ top-1 | when: the moved trips' weekday / date | not judged |
+| `unit_change-20pct` | `unit_change` | medium | ✅ top-1 | | not judged |
+| `unit_change-100pct` | `unit_change` | high | ✅ top-1 | | not judged |
+| `volume_drop-50pct` | `rows_missing_evenly` | medium | ✅ top-1 | | not judged |
+| `stale_file-5d` | `late_delivery` | medium | ✅ top-1 | | not judged |
+| `stale_file-20d` | `late_delivery` | high | ✅ top-1 | | not judged |
+| `plausible_but_wrong-20pct` | `fare_does_not_fit_trip` | medium | ✅ top-1 | | not judged |
+
+The 12 experiments no detector caught (the 1% rule faults, which are flagged without an
+incident, and the misses above) have nothing to explain.
+
+**Why the vendor fault at 1% and 5% is explained wrongly.** On the test months vendor 2 has
+about 100 trips, so 1% and 5% empty 1 and 5 fares. A concentration needs a segment of at least
+20 rows holding most of the affected rows at a rate far beyond chance (z ≥ 4,
+`configs/investigation.yml`); five rows cannot reach that, so the where/when says "only 5
+affected row(s), too few to tell" and the explainer falls back to the general cause, worded so
+it claims nothing about the place ("with no part of the data standing out"). At 20% (19 rows)
+the vendor is found. On the full data a 10% sample has about 300,000 trips a month, so even 1%
+of one vendor's rows is thousands of rows: to confirm with the real run.
+
 ## The score
 
 The score summarises a month; it is not the alert. On the test months a critical schema finding
@@ -163,7 +212,8 @@ volume, freshness and drift misses the same, at the same limits.
 ## Known limits
 
 - One target month (2023-06), one fault at a time: faults that mask each other are not tested.
-- Faults hit random rows; real problems cluster (one vendor, one zone, one day).
+- Faults hit random rows, except `null_spike_vendor`; real problems cluster (one vendor, one
+  zone, one day).
 - Detection is per month: a fault that starts mid-month is seen at the month's file.
 - The evaluation measures the configured limits; changing a limit in `configs/quality_rules.yml`
   changes the result, which is the point: rerun the experiments after a change.

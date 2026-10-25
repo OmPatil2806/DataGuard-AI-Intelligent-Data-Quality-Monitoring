@@ -38,7 +38,7 @@ def test_config_loads(config):
     assert config.history == ("2023-01", "2023-02", "2023-03", "2023-04", "2023-05")
     assert (config.sample_fraction, config.seed) == (0.1, 42)
     assert config.workspace == REPO_ROOT / "data" / "evaluation"
-    assert len(config.faults) == 11
+    assert len(config.faults) == 12
     assert {f.category for f in config.faults.values()} == {
         "schema", "completeness", "uniqueness", "validity", "referential",
         "drift", "volume", "freshness", "pattern", "consistency", "ml_anomaly",
@@ -51,13 +51,17 @@ def test_config_loads(config):
     assert config.faults["null_spike"].expect == (fi.Expect("check", "null_rate", "fare_amount"),)
     assert config.faults["duplicate_rows"].expect == (fi.Expect("rule", "trip_unique"),)
     assert config.faults["plausible_but_wrong"].expect == (fi.Expect("ml", "anomaly"),)
+    assert all(f.causes for f in config.faults.values())  # every fault says what is right
+    assert config.faults["null_spike"].where == "none"
+    assert config.faults["null_spike_vendor"].where == {"dimension": "vendor", "value": "2"}
+    assert config.faults["missing_column"].where is None
 
 
 def test_experiment_plan(config):
     plan = config.experiments()
     assert plan[0] == ("control", "control", None)
     ids = [p[0] for p in plan]
-    assert len(ids) == 34 == len(set(ids))
+    assert len(ids) == 37 == len(set(ids))
     for expected in ("missing_column", "null_spike-1pct", "volume_drop-50pct", "stale_file-20d",
                      "unit_change-100pct", "swapped_times-20pct"):  # fmt: skip
         assert expected in ids
@@ -92,6 +96,16 @@ def test_experiment_plan(config):
         (lambda d: d["faults"]["null_spike"].update(expect=[{"ml": "forest"}]), "is 'anomaly'"),
         (lambda d: d["faults"].update(control=d["faults"]["null_spike"]), "invalid fault id"),
         (lambda d: d.update(faults={}), "no faults"),
+        (
+            lambda d: d["faults"]["null_spike"].update(explain={"causes": ["a_guess"]}),
+            "not in configs/playbooks.yml",
+        ),
+        (lambda d: d["faults"]["null_spike"].update(explain={"causes": "x"}), "list of cause"),
+        (
+            lambda d: d["faults"]["null_spike"].update(explain={"where": {"dimension": "v"}}),
+            "where must be",
+        ),
+        (lambda d: d["faults"]["null_spike"].update(explain=[1]), "must be a mapping"),
     ],
 )
 def test_config_is_validated(tmp_path, change, message):
@@ -225,7 +239,7 @@ def test_manifest_must_be_complete(tmp_path):
 def test_main(tmp_path, capsys):
     assert fi.main(["--list"]) == 0
     out = capsys.readouterr().out
-    assert "34 experiments" in out and "volume_drop-50pct" in out
+    assert "37 experiments" in out and "volume_drop-50pct" in out
     assert fi.main(["--fault", "control", "--source", str(FIXTURE), "--out", str(tmp_path)]) == 0
     assert "control: 20 of 200 rows sampled" in capsys.readouterr().out
     assert fi.main(["--fault", "control"]) == 2

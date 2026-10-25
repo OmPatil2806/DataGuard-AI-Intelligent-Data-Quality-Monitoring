@@ -120,6 +120,21 @@ def test_null_spike(run):
     assert control.loc[rows, "fare_amount"].notna().all()  # only values that existed
 
 
+def test_null_spike_in_one_vendor(run):
+    _, control, _ = run("control")
+    manifest, frame, _ = run("null_spike_vendor-20pct")
+    rows = [r - 1 for r in manifest.affected_rows]
+    assert rows and frame.loc[rows, "fare_amount"].isna().all()
+    assert (control.loc[rows, "VendorID"] == 2).all()  # only the one vendor
+    vendor2 = control.index[(control["VendorID"] == 2) & control["fare_amount"].notna()]
+    assert len(rows) == round(0.2 * len(vendor2))
+    others = control.index.difference(rows)
+    assert (
+        frame.loc[others, "fare_amount"].isna().sum()
+        == control.loc[others, "fare_amount"].isna().sum()
+    )
+
+
 def test_out_of_range_orphan_and_unit_change(run):
     _, control, _ = run("control")
     m, frame, _ = run("out_of_range-5pct")
