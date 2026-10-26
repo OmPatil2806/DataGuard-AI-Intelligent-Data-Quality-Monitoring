@@ -16,7 +16,7 @@ engine, is in [docs/investigation.md](docs/investigation.md). Pending a run on t
 data: the total-amount rule (open item O1), the measured rule results, the drift and score
 calibrations (notebooks 03 and 04), the detection evaluation (notebook 05), the anomaly model
 (notebook 06) and the investigation (notebook 07). In progress: Phase 10, the
-dashboard and alerts (10.1 alerts done).
+dashboard and alerts (10.1 alerts and 10.2 the dashboard's Overview done).
 
 ## Setup
 
@@ -307,10 +307,23 @@ After every rebuild (the `alert` stage, after the investigation), each open inci
 severity listed in `configs/alerts.yml` (critical and high) is alerted once, with its likely
 cause, where/when, the actions waiting and a link to the dashboard; again only if it escalates,
 never when it is merely seen again. Alerts are written to `data/alerts/outbox.jsonl` and shown
-on the dashboard; nothing leaves your machine.
-Every alert is recorded in `alert_log`; an alert that could not be written is retried by the next run. The
-fault experiments never alert (`rebuild.py --no-alerts`). On the real VED data, 2 of its 9
+on the dashboard; nothing leaves your machine. Every alert is recorded in `alert_log`; an alert
+that could not be written is retried by the next run. The fault experiments never alert (`rebuild.py --no-alerts`). On the real VED data, 2 of its 9
 incidents were alerted (the open high ones), and a second run sent nothing.
+
+## Dashboard
+
+```bash
+streamlit run src/dashboard/app.py          # opens http://localhost:8501
+```
+
+Pick a dataset and a month in the sidebar. The **Overview** shows the month's quality score
+(with its change), health, open incidents by severity, rows checked and quarantined; the score
+and the incidents opened and resolved per month; the most severe open incidents with their
+likely cause; the latest alerts and pipeline runs. The dashboard reads the Gold tables
+read-only and never writes; after a rebuild it shows the new results by itself. The other pages
+(Dataset Health, Incidents, Quarantine Explorer, Lineage) come in Steps 10.3 to 10.5. Details:
+[docs/dashboard.md](docs/dashboard.md).
 
 ## Second dataset: Vehicle Energy Dataset (Phase 9)
 
