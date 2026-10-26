@@ -2,16 +2,19 @@
 
 No Streamlit here: every function takes the DuckDB file and returns a DataFrame or a dict, so
 the queries are tested without a browser. The database is opened read-only and closed after
-each query: the dashboard can never change it, and it holds DuckDB's file lock only for the
-milliseconds a query takes, so the pipeline can write in between.
+each query: these reads never change it, and they hold DuckDB's file lock only for the
+milliseconds a query takes, so the pipeline can write in between. The dashboard's only writes,
+the decisions people take on the Incidents page, are in dashboard/actions.py.
 
 The dashboard reads Gold, plus the control tables Gold does not copy: pipeline_runs (when the
-pipeline last ran), alert_log (what was alerted), and for one month the checks of its latest
-run (dataset_check_results) and its score by category (quality_score_parts).
+pipeline last ran), the incident tables (so a decision on the Incidents page shows at once),
+alert_log (what was alerted), and for one month the checks of its latest run
+(dataset_check_results) and its score by category (quality_score_parts).
 """
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +25,7 @@ import pandas as pd
 
 from common import db
 from common.config import SEVERITIES, load_severity_weights
+from common.db import INCIDENT_STATUSES
 from quality.metrics import drift_bins
 
 DATABASE_ENV = "DATAGUARD_DATABASE"  # another DuckDB file (as for the notebooks)
@@ -129,7 +133,7 @@ def open_incidents(database: Path, dataset: str) -> dict[str, int]:
     """Active (not resolved) incidents now, per severity, every severity present."""
     frame = query(
         database,
-        "SELECT severity, count(*) AS n FROM gold_incident_summary "
+        "SELECT severity, count(*) AS n FROM incidents "
         "WHERE dataset = ? AND status != 'RESOLVED' GROUP BY 1",
         [dataset],
     )
@@ -178,20 +182,75 @@ def incident_monthly(database: Path, dataset: str) -> pd.DataFrame:
 
 def top_incidents(database: Path, dataset: str, limit: int = 5) -> pd.DataFrame:
     """The most severe active incidents, newest first within a severity, with their cause."""
+    return incidents(database, dataset, ("OPEN", "INVESTIGATING")).head(limit)
+
+
+def incidents(database: Path, dataset: str, statuses: tuple[str, ...] = INCIDENT_STATUSES
+              ) -> pd.DataFrame:  # fmt: skip
+    """The dataset's incidents with these statuses, most severe and newest first.
+
+    Read from the incident tables, not Gold, so a decision taken on the Incidents page shows at
+    once (Gold catches up at the next rebuild).
+    """
+    if not statuses:
+        return query(database, "SELECT * FROM incidents WHERE false")
+    marks = ", ".join("?" * len(statuses))
     return query(
         database,
         f"""
-        SELECT s.incident_id, s.severity, s.title, s.first_seen_period, s.last_seen_period,
-               s.months_seen, v.headline, v.top_cause, v.confidence, v.explained,
-               v.actions_pending
-        FROM gold_incident_summary s
-        LEFT JOIN gold_investigations v USING (incident_id)
-        WHERE s.dataset = ? AND s.status != 'RESOLVED'
-        ORDER BY {_severity_order("s.severity")}, s.last_seen_period DESC, s.incident_id
-        LIMIT ?
+        SELECT i.incident_id, i.severity, i.status, i.title, i.source, i.rule_id, i.column_name,
+               i.first_seen_period, i.last_seen_period, i.occurrences AS months_seen,
+               i.resolved_period, v.headline, v.top_cause, v.confidence, v.explained,
+               (SELECT count(*) FROM investigation_actions a WHERE a.incident_id = i.incident_id
+                AND a.status = 'pending_approval') AS actions_pending
+        FROM incidents i LEFT JOIN investigations v USING (incident_id)
+        WHERE i.dataset = ? AND i.status IN ({marks})
+        ORDER BY i.status = 'RESOLVED', {_severity_order("i.severity")},
+                 i.last_seen_period DESC, i.incident_id
         """,
-        [dataset, limit],
+        [dataset, *statuses],
     )
+
+
+def incident_detail(database: Path, incident_id: str) -> dict[str, Any]:
+    """One incident: its row, its investigation (causes, where/when), actions and history."""
+    rows = query(database, "SELECT * FROM incidents WHERE incident_id = ?", [incident_id])
+    if rows.empty:
+        raise DashboardError(f"No incident {incident_id}.")
+    found = query(
+        database,
+        "SELECT headline, explained, confidence, where_verdict, explanation, report_path "
+        "FROM investigations WHERE incident_id = ?",
+        [incident_id],
+    )
+    investigation = None
+    if not found.empty:
+        row = found.iloc[0]
+        explanation = json.loads(row["explanation"]) if row["explanation"] else {}
+        investigation = {
+            "headline": row["headline"],
+            "explained": bool(row["explained"]),
+            "confidence": row["confidence"],
+            "where": row["where_verdict"],
+            "causes": explanation.get("causes") or [],
+            "report_path": row["report_path"],
+        }
+    return {
+        "incident": rows.iloc[0].to_dict(),
+        "investigation": investigation,
+        "actions": query(
+            database,
+            "SELECT action_id, kind, text, for_cause, status, decided_by, decided_at "
+            "FROM investigation_actions WHERE incident_id = ? ORDER BY created_at, action_id",
+            [incident_id],
+        ),
+        "events": query(
+            database,
+            "SELECT seq, event, period, severity, status_after, detail, created_at "
+            "FROM incident_events WHERE incident_id = ? ORDER BY seq DESC",
+            [incident_id],
+        ),
+    }
 
 
 def recent_alerts(database: Path, dataset: str, limit: int = 10) -> pd.DataFrame:

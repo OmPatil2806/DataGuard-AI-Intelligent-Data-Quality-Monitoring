@@ -34,6 +34,9 @@ HEALTH_WORDS = {"healthy": "Healthy", "warning": "Warning", "critical": "Critica
                 "not_scored": "Not scored"}  # fmt: skip
 STATUS_WORDS = {"pass": "passed", "fail": "failed", "skipped": "skipped"}
 STATUS_LABELS = {"pass": "✅ pass", "fail": "❌ fail", "skipped": "⏭️ skipped"}
+ACTION_LABELS = {"pending_approval": "⏳ waiting", "approved": "👍 approved",
+                 "rejected": "👎 rejected", "done": "✅ done"}  # fmt: skip
+DECISION_BUTTONS = {"approved": "Approve", "rejected": "Reject", "done": "Mark done"}
 SEVERITY_LABELS = {"critical": "⛔ critical", "high": "🔴 high", "medium": "🟠 medium",
                    "low": "⚪ low"}  # fmt: skip
 
@@ -45,15 +48,20 @@ class Context:
     period: str
 
 
-def _stamp(database: Path) -> int:
-    try:
-        return database.stat().st_mtime_ns
-    except OSError:
-        return 0
+def _stamp(database: Path) -> tuple[int, int]:
+    """Modification times of the file and its write-ahead log (a write may sit in the log)."""
+
+    def mtime(path: Path) -> int:
+        try:
+            return path.stat().st_mtime_ns
+        except OSError:
+            return 0
+
+    return mtime(database), mtime(database.with_name(database.name + ".wal"))
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def _cached(name: str, database: str, stamp: int, *args):
+def _cached(name: str, database: str, stamp: tuple[int, int], *args):
     return getattr(data, name)(Path(database), *args)
 
 
@@ -83,7 +91,7 @@ def sidebar() -> Context:
     )
     if st.sidebar.button("Refresh", help="read the database again"):
         st.cache_data.clear()
-    st.sidebar.caption(f"Database (read-only): `{database}`")
+    st.sidebar.caption(f"Database: `{database}`")
     return Context(database, dataset, period)
 
 

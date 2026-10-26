@@ -6,6 +6,7 @@ alerts went out.
 """
 
 import hashlib
+import shutil
 from pathlib import Path
 
 import duckdb
@@ -15,7 +16,7 @@ from streamlit.testing.v1 import AppTest
 
 from alerts import notifier
 from common import db
-from dashboard import data
+from dashboard import actions, data
 from gold import monitoring_tables
 from investigation import investigate
 
@@ -186,3 +187,94 @@ def test_the_health_page(database, monkeypatch):
     at.selectbox(key="item:null_rate").select("fare_amount").run()
     at.selectbox(key="binned:yellow_taxi").select("fare_amount").run()
     assert not at.exception
+
+
+# --- Incidents (Step 10.4) --------------------------------------------------------------------
+
+
+@pytest.fixture
+def copy(database, tmp_path):
+    """A copy of the database for the tests that write."""
+    target = tmp_path / "dataguard.duckdb"
+    shutil.copy(database, target)
+    return target
+
+
+def test_incident_queries(database):
+    active = data.incidents(database, "yellow_taxi", ("OPEN", "INVESTIGATING"))
+    assert active["incident_id"].tolist() == ["INC-0003", "INC-0004", "INC-0005", "INC-0001"]
+    every = data.incidents(database, "yellow_taxi")
+    assert every["incident_id"].tolist()[-2:] == ["INC-0006", "INC-0002"]  # resolved last
+    assert data.incidents(database, "yellow_taxi", ()).empty
+    detail = data.incident_detail(database, "INC-0004")
+    assert detail["incident"]["title"] == "Distribution drift: trip_distance"
+    assert detail["investigation"]["causes"][0]["cause_id"] == "unit_change"
+    assert set(detail["actions"]["status"]) == {"pending_approval"}
+    assert detail["events"]["event"].tolist() == ["opened"]
+    with pytest.raises(data.DashboardError, match="No incident INC-9999"):
+        data.incident_detail(database, "INC-9999")
+
+
+def test_decisions_are_recorded_with_the_name(copy):
+    with pytest.raises(data.DashboardError, match="Enter your name"):
+        actions.decide(copy, "INC-0004", "contact_provider", "approved", "  ")
+    actions.decide(copy, "INC-0004", "contact_provider", "approved", "om")
+    actions.decide(copy, "INC-0004", "contact_provider", "done", "om")
+    actions.decide(copy, "INC-0004", "inspect_samples", "rejected", "asha")
+    decided = data.incident_detail(copy, "INC-0004")["actions"]
+    assert decided[["action_id", "status", "decided_by"]].values.tolist() == [
+        ["contact_provider", "done", "om"], ["inspect_samples", "rejected", "asha"],
+    ]  # fmt: skip
+    with pytest.raises(data.DashboardError, match="no suggested action"):
+        actions.decide(copy, "INC-0004", "reprocess", "approved", "om")
+
+
+def test_status_changes_and_notes(copy):
+    actions.set_status(copy, "INC-0003", "INVESTIGATING", "", "om")
+    actions.add_note(copy, "INC-0003", "asked the provider", "om")
+    actions.set_status(copy, "INC-0003", "RESOLVED", "fixed upstream", "om")
+    events = data.incident_detail(copy, "INC-0003")["events"]
+    assert events[["event", "detail"]].values.tolist()[:3] == [
+        ["resolved", "fixed upstream (by om)"], ["note", "asked the provider (by om)"],
+        ["investigating", "by om"],
+    ]  # fmt: skip
+    assert data.open_incidents(copy, "yellow_taxi")["high"] == 2  # shows at once, before Gold
+    with pytest.raises(data.DashboardError, match="is resolved"):
+        actions.set_status(copy, "INC-0003", "OPEN", "", "om")
+    with pytest.raises(data.DashboardError, match="empty"):
+        actions.add_note(copy, "INC-0003", " ", "om")
+
+
+def test_a_busy_database_is_reported(copy, monkeypatch):
+    def busy(*args, **kwargs):
+        raise duckdb.IOException("Could not set lock on file")
+
+    monkeypatch.setattr(actions.db, "connect", busy)
+    with pytest.raises(data.DashboardError, match="busy"):
+        actions.add_note(copy, "INC-0003", "x", "om")
+
+
+def test_the_incidents_page(copy, monkeypatch):
+    at = app(monkeypatch, copy)
+    at.switch_page("views/incidents.py").run()
+    assert not at.exception
+    assert at.title[0].value == "Incidents: yellow_taxi"
+    assert at.dataframe[0].value["incident_id"].tolist()[0] == "INC-0003"
+    assert {m.label: m.value for m in at.metric}["Status"] == "Open"
+    approve = "INC-0003:contact_provider:approved"
+    at.button(key=approve).click().run()
+    assert "Enter your name" in at.error[0].value
+    at.text_input(key="decided_by").input("om").run()
+    at.button(key=approve).click().run()
+    assert not at.exception and at.success[0].value == "contact_provider: approved"
+    assert "Mark done" in [b.label for b in at.button]
+    at.button(key="INC-0003:status:INVESTIGATING").click().run()
+    assert {m.label: m.value for m in at.metric}["Status"] == "Investigating"
+    at.text_area(key="note:INC-0003").input("waiting for the provider").run()
+    at.button(key="INC-0003:note").click().run()
+    history = at.dataframe[-1].value
+    assert history["event"].tolist()[:2] == ["note", "investigating"]
+    at.multiselect(key="severities").select("medium").run()
+    assert at.dataframe[0].value["incident_id"].tolist() == ["INC-0001"]
+    at.text_input(key="search").input("nothing like this").run()
+    assert "No incident matches." in at.info[0].value

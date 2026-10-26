@@ -152,7 +152,8 @@ accuracy is measured.
 The best cause's actions (`actions` in `configs/playbooks.yml`: contact the provider, check the
 column mapping, download again, reprocess the month, review a rule or baseline, accept the
 change, ...) are stored as `pending_approval`. **Nothing runs them.** A person records a
-decision: `approved`, `rejected` or `done`, with their name. A decision is kept while the
+decision: `approved`, `rejected` or `done`, with their name, on the dashboard's Incidents page
+or with `investigate.py --decide`. A decision is kept while the
 explanation still suggests the action, so investigating again never resets it; a pending
 action the explanation no longer suggests is removed. When the cause is unknown, the only
 suggestion is to look at the sample rows (or ask the provider for month-level findings).

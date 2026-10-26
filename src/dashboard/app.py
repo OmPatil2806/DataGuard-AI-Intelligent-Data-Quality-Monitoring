@@ -3,8 +3,9 @@
     streamlit run src/dashboard/app.py
     DATAGUARD_DATABASE=other.duckdb streamlit run src/dashboard/app.py
 
-Opens http://localhost:8501 (the link in every alert). Reads the DuckDB file read-only, never
-writes to it; rebuild.py fills it. Pages in src/dashboard/views/.
+Opens http://localhost:8501 (the link in every alert). Reads the DuckDB file read-only;
+rebuild.py fills it. The only writes are the decisions people take on the Incidents page
+(dashboard/actions.py). Pages in src/dashboard/views/.
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ def pages() -> list:
     return [
         st.Page(str(VIEWS / "overview.py"), title="Overview", icon="🏠", default=True),
         st.Page(str(VIEWS / "health.py"), title="Dataset Health", icon="📈", url_path="health"),
-        soon("Incidents", "10.4", "🚨", "incidents"),
+        st.Page(str(VIEWS / "incidents.py"), title="Incidents", icon="🚨", url_path="incidents"),
         soon("Quarantine Explorer", "10.5", "🧪", "quarantine"),
         soon("Lineage", "10.5", "🔗", "lineage"),
     ]

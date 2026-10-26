@@ -16,15 +16,22 @@ PowerShell: `$env:DATAGUARD_DATABASE="other.duckdb"; streamlit run src/dashboard
 |---|---|
 | `src/dashboard/app.py` | The entry point: page setup, navigation, sidebar |
 | `src/dashboard/data.py` | Every query, as plain functions (no Streamlit), so they are tested without a browser |
+| `src/dashboard/actions.py` | The only writes: decisions on the Incidents page |
 | `src/dashboard/ui.py` | What every page shares: the chosen dataset and month, cached reads, colors and labels |
 | `src/dashboard/views/` | One file per page |
 
-- **Read-only.** Each query opens the DuckDB file read-only and closes it straight after. The
-  dashboard cannot change the database (`tests/test_dashboard.py` checks the file's SHA-256),
-  and it holds DuckDB's file lock only while a query runs, so the pipeline can write between
-  two redraws. If a query meets the pipeline's lock, the page says the database is busy.
-- **Cached until the file changes.** Reads are cached per database file and its modification
-  time: a redraw does not query again, and a rebuild shows on the next redraw. **Refresh** in
+- **Reads are read-only.** Each query opens the DuckDB file read-only and closes it straight
+  after. Showing a page never changes the database (`tests/test_dashboard.py` checks the
+  file's SHA-256), and it holds DuckDB's file lock only while a query runs, so the pipeline can
+  write between two redraws. If a query meets the pipeline's lock, the page says the database
+  is busy.
+- **The only writes are people's decisions** on the Incidents page: approve, reject or finish
+  a suggested action, change an incident's status, add a note. Each opens the database for one
+  change through the same code as the command line (`incidents_cli.py`,
+  `investigate.py --decide`) and closes it, and each records the person's name. Approving an
+  action records the decision; nothing is run.
+- **Cached until the file changes.** Reads are cached per database file and the modification
+  times of the file and its write-ahead log, and a decision empties the cache: a redraw does not query again, and a rebuild shows on the next redraw. **Refresh** in
   the sidebar empties the cache.
 - **Says what to run** when there is nothing to show: no database, Gold not built, no month.
 
@@ -34,7 +41,7 @@ PowerShell: `$env:DATAGUARD_DATABASE="other.duckdb"; streamlit run src/dashboard
 |---|---|---|
 | Overview | 10.2 | The month at a glance, its trend, open incidents, alerts, runs |
 | Dataset Health | 10.3 | Every month of a dataset; the chosen month's checks, columns, score by category; any measure over time; distributions; schema changes |
-| Incidents | 10.4 | coming |
+| Incidents | 10.4 | Every incident with filters; one in depth: finding, likely causes with evidence, where/when, suggested actions to approve or reject, status changes, notes, history |
 | Quarantine Explorer | 10.5 | coming |
 | Lineage | 10.5 | coming |
 
@@ -63,6 +70,22 @@ PowerShell: `$env:DATAGUARD_DATABASE="other.duckdb"; streamlit run src/dashboard
 | Distribution | Share of the rows per drift bin, the month against the month before, for each binned column (`defaults.drift.bins` in `configs/quality_rules.yml`) | `gold_column_profile` |
 | Schema changes | Every column renamed, retyped, missing, added or removed, in any month | `gold_schema_history` |
 
+### Incidents
+
+Read from the incident tables (`incidents`, `incident_events`, `investigations`,
+`investigation_actions`), not Gold, so a decision shows at once; the Overview's open incidents
+come from the same tables. Gold catches up at the next rebuild.
+
+| Part | What |
+|---|---|
+| Filters | Status (open and investigating by default), severity, a search in title, column, rule and id |
+| List | Every matching incident, most severe and newest first, with its likely cause and actions waiting |
+| One incident | Severity, status, months seen, first and last month, the latest finding (observed, expected, detail), a returning problem's earlier incident |
+| Likely cause | The investigation's headline and its ranked causes with their evidence, where/when, the report's path |
+| Suggested actions | Each action with its decision and who took it: **Approve** or **Reject** while waiting, **Mark done** once approved. Needs your name |
+| Status and notes | **Start investigating** (open), **Back to open** (investigating), **Resolve** (either; a resolved incident stays resolved and a recurrence opens a new one), **Add note**; the note text goes with a status change too. Every change is signed "(by name)" in the history |
+| History | Every event of the incident, newest first: opened, seen again, clean, investigating, notes, resolved |
+
 Health and severity are always shown as a word (with an icon in tables), never by color
 alone. Status colors (healthy, warning, critical) are used only for status, never for a series.
 
@@ -72,5 +95,7 @@ alone. Status colors (healthy, warning, critical) are used only for status, neve
 investigated, alerted, Gold built) and checks the queries against the Gold tables, the page
 itself with Streamlit's `AppTest` (numbers, charts, tables, the month picker), that the file is
 unchanged after the page was shown, and the messages when there is no database or no Gold.
-For Dataset Health: the checks against the month's check run, the trends, the distribution
+For Incidents (on a copy of the database): the list and detail queries, decisions with the
+name, status changes and notes, refused changes (a resolved incident, an empty note, no name),
+a busy database, and the page's buttons, filters and search. For Dataset Health: the checks against the month's check run, the trends, the distribution
 against the month before and the bin labels, and the page with its toggle and pickers.
