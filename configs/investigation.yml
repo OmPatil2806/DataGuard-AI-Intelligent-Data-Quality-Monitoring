@@ -45,3 +45,12 @@ datasets:
       pickup_date: {sql: "CAST(pickup_date AS VARCHAR)", kind: when}
       pickup_weekday: {sql: "dayname(tpep_pickup_datetime)", kind: when}
       pickup_hour: {sql: "pickup_hour", kind: when}
+  ved_signals:
+    sample_columns: [vehicle_id, engine_type, trip_id, row_time, speed_kmh, engine_rpm,
+                     fuel_rate_l_h, battery_soc_pct, outside_temp_c, latitude, longitude]
+    dimensions:
+      engine_type: {sql: "engine_type", kind: where}
+      vehicle: {sql: "vehicle_id", kind: where}
+      date: {sql: "CAST(CAST(row_time AS DATE) AS VARCHAR)", kind: when}
+      weekday: {sql: "dayname(row_time)", kind: when}
+      hour: {sql: "hour(row_time)", kind: when}

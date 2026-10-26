@@ -31,6 +31,12 @@ defaults:
         trip_distance: [0, 0.5, 1, 1.5, 2, 3, 4, 5, 7, 10, 15, 20, 30, 50]
         fare_amount: [0, 5, 7.5, 10, 12.5, 15, 20, 25, 30, 40, 50, 70, 100]
         total_amount: [0, 10, 15, 20, 25, 30, 40, 50, 70, 100, 150]
+      # Outside air temperature is left out on purpose: it follows the seasons, so it drifts
+      # every month without anything being wrong (docs/ved_profile.md).
+      ved_signals:
+        speed_kmh: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 120]
+        engine_rpm: [0, 500, 1000, 1500, 2000, 2500, 3000, 4000]
+        battery_soc_pct: [0, 20, 40, 60, 80, 100]
   freshness:
     # replay: historical files were downloaded long after they were published, so a file
     #         counts as delivered on time unless file_manifest.simulated_delivered_at says
@@ -56,6 +62,13 @@ cold_start:
     # purpose: its volume difference is reported even though it has no earlier month.
     rows_per_day: {min: 50000, max: 200000}
     null_rate_max: 0.10                       # profiled: at most 5.33% per column
+
+  ved_signals:
+    # From the profile (docs/ved_profile.md, V20): 54,000 to 78,000 rows per day in the first
+    # months. The NULL shares of VED's signals depend on the fleet (V12: 42% to 96% for some
+    # columns), so no fixed NULL limit applies before a baseline exists.
+    rows_per_day: {min: 40000, max: 120000}
+    null_rate_max: 1.0
 
 # Row-level rules per dataset. Columns use the standard schema (configs/datasets.yml).
 # Every rule has:
@@ -310,3 +323,157 @@ rules:
       action: quarantine
       severity: medium
       reason: "duplicate of an earlier trip (same vendor, times, zones, fare and total)"
+
+  # Vehicle Energy Dataset (Phase 9.5). Every rule comes from a finding of the profile
+  # (docs/ved_profile.md, V1 to V20); rules that need the engine type ask the vehicles lookup.
+  ved_signals:
+    # --- completeness --------------------------------------------------------------------
+    - id: reading_identified
+      description: "Every reading needs its vehicle, trip and time to be placed at all."
+      category: completeness
+      check: not_null
+      columns: [vehicle_id, trip_id, day_num, trip_ms]
+      action: quarantine
+      severity: high
+      reason: "vehicle, trip or time missing"
+
+    - id: engine_signals_present_ice     # V12: petrol cars send RPM
+      description: "A petrol car (ICE) without engine RPM has lost its engine signals."
+      category: completeness
+      check: not_null
+      columns: [engine_rpm]
+      when: "vehicle_id IN (SELECT VehId FROM lookup_vehicles WHERE EngineType = 'ICE')"
+      action: warn
+      severity: low
+      reason: "petrol car without engine RPM"
+
+    - id: battery_signals_present_ev     # V12: EVs and plug-in hybrids send the charge
+      description: "An electric or plug-in hybrid car without battery charge has lost its battery signals."
+      category: completeness
+      check: not_null
+      columns: [battery_soc_pct]
+      when: "vehicle_id IN (SELECT VehId FROM lookup_vehicles WHERE EngineType IN ('EV', 'PHEV'))"
+      action: warn
+      severity: low
+      reason: "electric car without battery charge"
+
+    # --- validity ------------------------------------------------------------------------
+    - id: trip_time_not_negative         # V7: 2,702 rows in 4 trips
+      description: "Time since the trip started cannot be negative; such rows cannot be placed in time."
+      category: validity
+      check: range
+      column: trip_ms
+      min: 0
+      action: quarantine
+      severity: medium
+      reason: "trip_ms {trip_ms} before the trip started"
+
+    - id: speed_in_range                 # V18: 0 to 173 km/h measured
+      description: "A car's speed is between 0 and 200 km/h."
+      category: validity
+      check: range
+      column: speed_kmh
+      min: 0
+      max: 200
+      action: quarantine
+      severity: high
+      reason: "speed {speed_kmh} km/h outside 0-200"
+
+    - id: engine_load_max_100            # V14: 29,219 rows above 100%, up to 22,463%
+      description: "Absolute engine load above 100% is a sensor fault; kept as a warning until measured further."
+      category: validity
+      check: range
+      column: absolute_load_pct
+      min: 0
+      max: 100
+      action: warn
+      severity: low
+      reason: "engine load {absolute_load_pct}% outside 0-100"
+
+    - id: battery_charge_in_range        # V15: 100.00003% is float rounding
+      description: "Battery charge is between 0 and 100%, with a small tolerance for rounding."
+      category: validity
+      check: range
+      column: battery_soc_pct
+      min: 0
+      max: 100.001
+      action: quarantine
+      severity: medium
+      reason: "battery charge {battery_soc_pct}% outside 0-100"
+
+    - id: outside_temp_not_at_limit      # V13: 1,441 rows at -40 and 1,460 at 60 degrees
+      description: "Exactly -40 or 60 degrees are the sensor's limits, not readings."
+      category: validity
+      check: forbidden_values
+      column: outside_temp_c
+      values: [-40, 60]
+      action: warn
+      severity: low
+      reason: "outside temperature {outside_temp_c} is the sensor's limit"
+
+    # --- pattern -------------------------------------------------------------------------
+    - id: latitude_in_area               # V17: 42.220 to 42.326
+      description: "Every reading lies in the Ann Arbor area."
+      category: pattern
+      check: range
+      column: latitude
+      min: 42.2
+      max: 42.35
+      action: quarantine
+      severity: high
+      reason: "latitude {latitude} outside the Ann Arbor area"
+
+    - id: longitude_in_area              # V17: -83.804 to -83.674
+      description: "Every reading lies in the Ann Arbor area."
+      category: pattern
+      check: range
+      column: longitude
+      min: -83.82
+      max: -83.65
+      action: quarantine
+      severity: high
+      reason: "longitude {longitude} outside the Ann Arbor area"
+
+    - id: reading_in_file_month          # V5, V6: months are grouped by the row time
+      description: "Each monthly file holds that month's readings; others signal a wrong regrouping."
+      category: pattern
+      check: within_period
+      column: row_time
+      action: quarantine
+      severity: high
+      reason: "reading at {row_time} outside the file's month"
+
+    # --- consistency ---------------------------------------------------------------------
+    - id: rpm_when_moving_ice            # V16: 0.04% of moving petrol cars
+      description: "A moving petrol car has a running engine (not for hybrids and EVs)."
+      category: consistency
+      check: range
+      column: engine_rpm
+      min: 0
+      exclusive_min: true
+      when: "speed_kmh > 0 AND vehicle_id IN (SELECT VehId FROM lookup_vehicles WHERE EngineType = 'ICE')"
+      action: warn
+      severity: low
+      reason: "petrol car moving at {speed_kmh} km/h with RPM {engine_rpm}"
+
+    # --- referential ---------------------------------------------------------------------
+    - id: vehicle_known                  # V9: all 384 vehicles are in the static data
+      description: "Every vehicle is in the static data."
+      category: referential
+      check: foreign_key
+      column: vehicle_id
+      lookup: vehicles
+      lookup_column: VehId
+      action: quarantine
+      severity: high
+      reason: "vehicle {vehicle_id} not in the static data"
+
+    # --- uniqueness ----------------------------------------------------------------------
+    - id: reading_unique                 # V8: no duplicates measured
+      description: "A vehicle's trip has one reading per millisecond offset."
+      category: uniqueness
+      check: unique
+      columns: [vehicle_id, trip_id, trip_ms]
+      action: quarantine
+      severity: medium
+      reason: "a second reading of the trip at the same time"

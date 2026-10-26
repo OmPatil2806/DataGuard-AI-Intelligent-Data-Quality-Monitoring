@@ -15,8 +15,8 @@ report, measured against the injected faults in [docs/investigation.md](docs/inv
 Pending a run on the full data: the total-amount rule (open item O1), the measured rule
 results, the drift and score calibrations (notebooks 03 and 04), the detection evaluation
 (notebook 05), the anomaly model (notebook 06) and the investigation (notebook 07). In
-progress: Phase 9, a second dataset, the Vehicle Energy Dataset (9.1 profile, 9.2 ingestion, 9.3 standardization and 9.4 datasets by config done:
-[docs/ved_profile.md](docs/ved_profile.md)).
+progress: Phase 9, a second dataset, the Vehicle Energy Dataset (9.1 to 9.5 done: VED is
+monitored with configuration only, [docs/ved_profile.md](docs/ved_profile.md)).
 
 ## Setup
 
@@ -302,6 +302,7 @@ with its report, where and when, the actions, and the accuracy on the experiment
 python src/data_download/fetch_archives.py --dataset ved_signals   # download and unpack (3.2 GB)
 python src/profiling/ved_profile.py                                # profile every row
 python src/ingestion/ingest_data.py --dataset ved_signals          # one month per file, to Bronze
+python src/gold/rebuild.py --dataset ved_signals --lookups data/incoming   # everything after Bronze
 ```
 
 [VED](https://github.com/gsoh/VED) (Apache License 2.0) is GPS and OBD-II signals of 384 cars
@@ -315,7 +316,10 @@ block in `datasets.yml`: `ingest_data.py` first regroups its rows into one Parqu
 (`src/ingestion/prepare_source.py`, every row traced to its source line by `origin_file` and
 `origin_line`), then registers and loads them as usual. Its standard schema maps the source
 names (`Vehicle Speed[km/h]` -> `speed_kmh`) and computes the row time from the trip's start
-day and milliseconds (`row_time`, a column with `sql:`), before any rule runs. Findings and the decisions they lead
+day and milliseconds (`row_time`, a column with `sql:`), before any rule runs. VED's 14 rules,
+lookup, drift bins and investigation dimensions are configuration only; on the real data the
+rebuild of 22 million rows takes 84 seconds and finds a real change: from April 2018 up to 52
+petrol cars a month stop sending fuel trims. Findings and the decisions they lead
 to: [docs/ved_profile.md](docs/ved_profile.md); charts in `notebooks/08_ved_profiling.ipynb`.
 
 ## Adding a dataset

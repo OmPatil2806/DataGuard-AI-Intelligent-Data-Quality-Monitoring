@@ -145,6 +145,60 @@ On the real February 2018 file: 22 columns renamed, 5 cast (ids to INTEGER, RPM 
 DOUBLE) without a value lost, `row_time` computed for all 1,519,330 rows, every one inside
 February, and the schema check finds no change.
 
+## Monitoring (Step 9.5): configuration only
+
+VED is enabled in `datasets.yml` and monitored like the taxis, with **no change to `src/`**
+(`tests/test_ved_pipeline.py` also checks that no monitoring code names VED):
+
+| File | VED's part |
+|---|---|
+| `datasets.yml` | `enabled: true`; the `vehicles` lookup stacked from the two static files with `Vehicle Type` renamed to `EngineType` (V10); `engine_type` joined into Silver |
+| `quality_rules.yml` | 14 rules, each from a finding above; cold-start limits of 40,000 to 120,000 rows a day and no fixed NULL limit (V12, V20); drift bins for speed, RPM and battery charge (not the outside temperature: it follows the seasons) |
+| `investigation.yml` | sample columns, and where/when by engine type, vehicle, date, weekday and hour |
+
+Rules that depend on the engine type ask the lookup in their `when` condition, e.g.
+`vehicle_id IN (SELECT VehId FROM lookup_vehicles WHERE EngineType = 'ICE')`.
+
+```
+python src/ingestion/ingest_data.py --dataset ved_signals
+python src/gold/rebuild.py --dataset ved_signals --lookups data/incoming
+```
+
+### On the real data
+
+The rebuild of all 12 months (22,000,556 rows) took **84 seconds**: Silver 58 s, checks 8 s,
+rules 6 s, the rest under 3 s each. Every stage passed.
+
+| Rule | Rows failed | Action | Profile |
+|---|---|---|---|
+| `engine_load_max_100` | 28,697 | warn | V14 |
+| `engine_signals_present_ice` | 5,274 | warn | V12 |
+| `outside_temp_not_at_limit` | 2,901 | warn | V13 (1,441 + 1,460) |
+| `trip_time_not_negative` | 2,702 | quarantine | V7 |
+| `battery_signals_present_ev` | 974 | warn | V12 |
+| `rpm_when_moving_ice` | 55 | warn | V16 |
+| `battery_charge_in_range` | 0 | quarantine | V15: the tolerance takes the 100.00003% values |
+| GPS area, file month, known vehicle, uniqueness, identity, speed | 0 | quarantine | V8, V9, V17, V18 |
+
+Only the 2,702 rows of negative time leave Silver. Schema and volume pass every month
+(February 2018's −28% included), freshness is skipped, drift fails once.
+
+| Incident | Months | What it is |
+|---|---|---|
+| NULL rate: `ltft_bank1_pct` (high), `stft_bank1_pct` (high), `ltft_bank2_pct`, `stft_bank2_pct` (medium) | from 2018-03, open | **A real change.** From April 2018 between 25 and 52 petrol cars a month send no fuel trims at all (1 to 4 a month before); among petrol cars the share of rows without a trim rises from 2% to 43% |
+| NULL rate: `maf_g_s`, `absolute_load_pct` (low) | 2018-06, 2018-09 | Small rises (+3.2, +2.3 points), resolved or near the limit |
+| Drift: `battery_soc_pct` (medium) | 2018-05, resolved | PSI 0.101, just over the limit: fewer cars below 20% charge in May. The explainer says **cause unknown**, rightly |
+| Rule failure rate: `trip_time_not_negative` (medium) | 2018-04, resolved | The trips with negative time of V7 |
+
+The quality score is 100 for 2017-11 to 2018-02 and 85.6 to 97.1 after, all from completeness
+(the fuel-trim NULLs) and the May drift; Gold labels 2018-04 onwards `warning`.
+
+**What the investigation can and cannot place.** The fuel-trim NULLs come from about fifty
+petrol cars at once, none holding half of the missing values, and electric cars never send
+fuel trims at all; so no single segment passes the where/when test and the answer is "no part
+of the data standing out". True, but a per-vehicle view would say more; that needs a check per
+engine type (a NULL-rate check within ICE only), a candidate for later.
+
 ## Known limits
 
 - Profiled once, on the files as downloaded in Phase 9.1 (their SHA-256 is in

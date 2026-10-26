@@ -77,7 +77,7 @@ datasets:
     # https://github.com/gsoh/VED. Profiled in Phase 9.1 (docs/ved_profile.md); monitored from
     # Phase 9.5. Weekly CSVs inside two 7z archives, plus the vehicles' static data in Excel.
     description: Vehicle Energy Dataset, OBD-II signals from 384 cars in Ann Arbor (Phase 9)
-    enabled: false
+    enabled: true
     # The source is weekly CSVs; ingest_data.py first regroups their rows into one Parquet file
     # per month (src/ingestion/prepare_source.py), which is what is registered and loaded.
     format: parquet
@@ -133,6 +133,18 @@ datasets:
         sql: >-
           TIMESTAMP '2017-11-01' + to_microseconds(CAST(round((day_num - 1) * 86400e6
           + trip_ms * 1000) AS BIGINT))
+    # The vehicles' static data (V9, V10): two files that name the engine type column
+    # differently, stacked into one lookup. Unpacked by fetch_archives.py, so no URL here.
+    lookups:
+      vehicles:
+        files: [ved_signals/static_ice_hev.csv, ved_signals/static_phev_ev.csv]
+        rename: {"Vehicle Type": EngineType}
+    silver:
+      joins:
+        - lookup: vehicles
+          key: VehId
+          column: vehicle_id
+          columns: {EngineType: engine_type}
     # python src/data_download/fetch_archives.py --dataset ved_signals
     # unpacks into <paths.incoming>/ved_signals/: VED_yymmdd_week.csv and the static data as CSV
     archives:

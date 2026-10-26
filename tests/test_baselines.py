@@ -105,7 +105,9 @@ def test_settings_from_the_repository_config():
     s = baselines.settings_for("yellow_taxi")
     assert (s.min_runs, s.window, s.max_gap_months) == (3, 6, 12)
     assert (s.rows_per_day_min, s.rows_per_day_max, s.null_rate_max) == (50000, 200000, 0.10)
-    assert baselines.settings_for("ved_signals").rows_per_day_min is None
+    ved = baselines.settings_for("ved_signals")
+    assert (ved.rows_per_day_min, ved.rows_per_day_max, ved.null_rate_max) == (40000, 120000, 1.0)
+    assert baselines.settings_for("not_configured").rows_per_day_min is None
 
 
 def write_config(tmp_path, change):
