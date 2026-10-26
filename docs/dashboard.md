@@ -33,7 +33,7 @@ PowerShell: `$env:DATAGUARD_DATABASE="other.duckdb"; streamlit run src/dashboard
 | Page | Step | Shows |
 |---|---|---|
 | Overview | 10.2 | The month at a glance, its trend, open incidents, alerts, runs |
-| Dataset Health | 10.3 | coming |
+| Dataset Health | 10.3 | Every month of a dataset; the chosen month's checks, columns, score by category; any measure over time; distributions; schema changes |
 | Incidents | 10.4 | coming |
 | Quarantine Explorer | 10.5 | coming |
 | Lineage | 10.5 | coming |
@@ -50,6 +50,19 @@ PowerShell: `$env:DATAGUARD_DATABASE="other.duckdb"; streamlit run src/dashboard
 | Latest alerts | The dataset's latest alerts and whether they were written | `alert_log` |
 | Latest pipeline runs | The last five runs of any dataset | `pipeline_runs` |
 
+### Dataset Health
+
+| Part | What | From |
+|---|---|---|
+| Where the rows went | Silver and Quarantine rows per month (warned rows on hover) | `gold_dataset_health` |
+| Score by category | The month's pass rate per category, lowest first, with its weight and source on hover | `quality_score_parts` |
+| Months | Every month: health, score, rows, quarantine share, checks failed, incidents, worst finding | `gold_dataset_health` |
+| Dataset checks | Every check of the month's latest check run, failures first (only the failures by default) | `dataset_check_results` |
+| Columns | Each column's NULL rate against its usual rate, PSI, mean, median and p99, failures first | `gold_column_profile` |
+| One measure over time | Rows per day, quarantine or warned rate, a column's NULL rate or PSI, a rule's failure rate, the model's flag rate or the score; each month's marker shows its check (passed, failed, none) and the dotted line the baseline | `gold_trends` |
+| Distribution | Share of the rows per drift bin, the month against the month before, for each binned column (`defaults.drift.bins` in `configs/quality_rules.yml`) | `gold_column_profile` |
+| Schema changes | Every column renamed, retyped, missing, added or removed, in any month | `gold_schema_history` |
+
 Health and severity are always shown as a word (with an icon in tables), never by color
 alone. Status colors (healthy, warning, critical) are used only for status, never for a series.
 
@@ -59,3 +72,5 @@ alone. Status colors (healthy, warning, critical) are used only for status, neve
 investigated, alerted, Gold built) and checks the queries against the Gold tables, the page
 itself with Streamlit's `AppTest` (numbers, charts, tables, the month picker), that the file is
 unchanged after the page was shown, and the messages when there is no database or no Gold.
+For Dataset Health: the checks against the month's check run, the trends, the distribution
+against the month before and the bin labels, and the page with its toggle and pickers.

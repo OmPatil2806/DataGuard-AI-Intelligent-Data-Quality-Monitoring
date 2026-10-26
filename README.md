@@ -16,7 +16,7 @@ engine, is in [docs/investigation.md](docs/investigation.md). Pending a run on t
 data: the total-amount rule (open item O1), the measured rule results, the drift and score
 calibrations (notebooks 03 and 04), the detection evaluation (notebook 05), the anomaly model
 (notebook 06) and the investigation (notebook 07). In progress: Phase 10, the
-dashboard and alerts (10.1 alerts and 10.2 the dashboard's Overview done).
+dashboard and alerts (10.1 alerts, 10.2 Overview and 10.3 Dataset Health done).
 
 ## Setup
 
@@ -320,9 +320,12 @@ streamlit run src/dashboard/app.py          # opens http://localhost:8501
 Pick a dataset and a month in the sidebar. The **Overview** shows the month's quality score
 (with its change), health, open incidents by severity, rows checked and quarantined; the score
 and the incidents opened and resolved per month; the most severe open incidents with their
-likely cause; the latest alerts and pipeline runs. The dashboard reads the Gold tables
-read-only and never writes; after a rebuild it shows the new results by itself. The other pages
-(Dataset Health, Incidents, Quarantine Explorer, Lineage) come in Steps 10.3 to 10.5. Details:
+likely cause; the latest alerts and pipeline runs. **Dataset Health** shows every month (rows,
+score, checks, incidents), the chosen month's failed checks, columns and score by category, any
+measure over time against its baseline, distributions against the month before, and schema
+changes. The dashboard reads the Gold tables read-only and never writes; after a rebuild it
+shows the new results by itself. The other pages (Incidents, Quarantine Explorer, Lineage)
+come in Steps 10.4 and 10.5. Details:
 [docs/dashboard.md](docs/dashboard.md).
 
 ## Second dataset: Vehicle Energy Dataset (Phase 9)

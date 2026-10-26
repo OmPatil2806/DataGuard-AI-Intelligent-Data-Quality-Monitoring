@@ -39,7 +39,7 @@ def pages() -> list:
 
     return [
         st.Page(str(VIEWS / "overview.py"), title="Overview", icon="🏠", default=True),
-        soon("Dataset Health", "10.3", "📈", "health"),
+        st.Page(str(VIEWS / "health.py"), title="Dataset Health", icon="📈", url_path="health"),
         soon("Incidents", "10.4", "🚨", "incidents"),
         soon("Quarantine Explorer", "10.5", "🧪", "quarantine"),
         soon("Lineage", "10.5", "🔗", "lineage"),

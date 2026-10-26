@@ -6,7 +6,8 @@ each query: the dashboard can never change it, and it holds DuckDB's file lock o
 milliseconds a query takes, so the pipeline can write in between.
 
 The dashboard reads Gold, plus the control tables Gold does not copy: pipeline_runs (when the
-pipeline last ran) and alert_log (what was alerted).
+pipeline last ran), alert_log (what was alerted), and for one month the checks of its latest
+run (dataset_check_results) and its score by category (quality_score_parts).
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ import pandas as pd
 
 from common import db
 from common.config import SEVERITIES, load_severity_weights
+from quality.metrics import drift_bins
 
 DATABASE_ENV = "DATAGUARD_DATABASE"  # another DuckDB file (as for the notebooks)
 GOLD_TABLES = (
@@ -28,6 +30,9 @@ GOLD_TABLES = (
     "gold_incident_summary",
     "gold_incident_monthly",
     "gold_investigations",
+    "gold_trends",
+    "gold_column_profile",
+    "gold_schema_history",
 )
 HEALTH = ("healthy", "warning", "critical", "not_scored")
 
@@ -210,4 +215,144 @@ def last_runs(database: Path, limit: int = 5) -> pd.DataFrame:
         "finished_at, error_message FROM pipeline_runs "
         "ORDER BY started_at DESC, run_id DESC LIMIT ?",
         [limit],
+    )
+
+
+# --- Dataset Health (Step 10.3) ---------------------------------------------------------------
+
+TREND_METRICS = {  # gold_trends metric: what it is called on the page
+    "rows_per_day": "Rows per day",
+    "quarantine_rate": "Quarantine rate",
+    "warned_rate": "Warned rate",
+    "null_rate": "NULL rate of a column",
+    "psi": "Drift (PSI) of a column",
+    "rule_failure_rate": "Failure rate of a rule",
+    "ml_flag_rate": "Rows flagged by the model",
+    "score": "Quality score",
+}
+
+
+def score_parts(database: Path, dataset: str, period: str) -> pd.DataFrame:
+    """The month's score by category: weight, pass rate and where it comes from."""
+    return query(
+        database,
+        """
+        SELECT p.category, p.weight, p.pass_rate, p.source
+        FROM quality_score_parts p
+        JOIN gold_dataset_health h USING (dataset, period, sha256)
+        WHERE p.dataset = ? AND p.period = ?
+        ORDER BY p.pass_rate, p.weight DESC, p.category
+        """,
+        [dataset, period],
+    )
+
+
+def checks(database: Path, dataset: str, period: str) -> pd.DataFrame:
+    """Every dataset check of the month's latest check run, failures first."""
+    return query(
+        database,
+        f"""
+        SELECT r."check", r.column_name, r.status, r.severity, r.observed, r.expected, r.detail
+        FROM dataset_check_results r
+        JOIN gold_dataset_health h
+          ON h.dataset = r.dataset AND h.period = r.period AND h.check_run_id = r.run_id
+        WHERE r.dataset = ? AND r.period = ?
+        ORDER BY r.status = 'pass', r.status = 'skipped', {_severity_order("r.severity")},
+                 r."check", r.column_name
+        """,
+        [dataset, period],
+    )
+
+
+def column_profile(database: Path, dataset: str, period: str) -> pd.DataFrame:
+    """Each column's NULL rate and drift in the month, failures first."""
+    return query(
+        database,
+        """
+        SELECT column_name, null_rate, null_rate_baseline, null_rate_status, null_rate_severity,
+               mean, median, p99, psi, drift_status, drift_severity
+        FROM gold_column_profile WHERE dataset = ? AND period = ?
+        ORDER BY coalesce(null_rate_status = 'fail' OR drift_status = 'fail', false) DESC,
+                 column_name
+        """,
+        [dataset, period],
+    )
+
+
+def trend_items(database: Path, dataset: str) -> dict[str, list[str]]:
+    """The measures of the dataset in gold_trends: metric -> its items ('' for none)."""
+    frame = query(
+        database,
+        "SELECT DISTINCT metric, coalesce(item, '') AS item FROM gold_trends WHERE dataset = ? "
+        "ORDER BY 1, 2",
+        [dataset],
+    )
+    items: dict[str, list[str]] = {}
+    for metric, item in frame.itertuples(index=False):
+        items.setdefault(metric, []).append(item)
+    return {m: items[m] for m in TREND_METRICS if m in items}
+
+
+def trend(database: Path, dataset: str, metric: str, item: str = "") -> pd.DataFrame:
+    """One measure month by month, with its baseline and check result where it has one."""
+    return query(
+        database,
+        """
+        SELECT period, unit, value, baseline, baseline_trusted, check_status, severity
+        FROM gold_trends
+        WHERE dataset = ? AND metric = ? AND coalesce(item, '') = ?
+        ORDER BY period
+        """,
+        [dataset, metric, item],
+    )
+
+
+def bin_labels(edges: list[float]) -> list[str]:
+    """Labels of the drift bins: below the first edge, between two edges, from the last edge."""
+
+    def number(x: float) -> str:
+        return f"{x:g}"
+
+    inner = [f"{number(a)} to {number(b)}" for a, b in zip(edges, edges[1:], strict=False)]
+    return [f"below {number(edges[0])}", *inner, f"{number(edges[-1])} and more"]
+
+
+def distribution(database: Path, dataset: str, column: str, period: str) -> pd.DataFrame:
+    """Share of the rows per drift bin in the month and in the month before (if it has one)."""
+    edges = drift_bins(dataset).get(column)
+    if not edges:
+        return pd.DataFrame(columns=["bin", "period", "rows", "share"])
+    frame = query(
+        database,
+        """
+        SELECT period, histogram FROM gold_column_profile
+        WHERE dataset = ? AND column_name = ? AND histogram IS NOT NULL AND period <= ?
+        ORDER BY period DESC LIMIT 2
+        """,
+        [dataset, column, period],
+    )
+    rows = []
+    for month, counts in frame.itertuples(index=False):
+        labels = bin_labels(edges)
+        if len(labels) != len(counts):  # the bins were changed after Gold was built
+            labels = [f"bin {i}" for i in range(len(counts))]
+        total = sum(counts) or 1
+        rows += [(label, month, n, n / total) for label, n in zip(labels, counts, strict=True)]
+    return pd.DataFrame(rows, columns=["bin", "period", "rows", "share"])
+
+
+def binned_columns(dataset: str) -> list[str]:
+    return list(drift_bins(dataset))
+
+
+def schema_changes(database: Path, dataset: str) -> pd.DataFrame:
+    """Every column change the schema check saw, newest month first."""
+    return query(
+        database,
+        f"""
+        SELECT period, column_name, change, severity, previous_period, detail
+        FROM gold_schema_history WHERE dataset = ? AND change != 'unchanged'
+        ORDER BY period DESC, {_severity_order("severity")}, column_key
+        """,
+        [dataset],
     )

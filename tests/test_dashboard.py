@@ -130,3 +130,59 @@ def test_without_a_database_it_says_what_to_run(tmp_path, monkeypatch):
     at = app(monkeypatch, tmp_path / "missing.duckdb")
     assert not at.exception and not at.metric
     assert "python src/gold/rebuild.py" in at.info[0].value
+
+
+# --- Dataset Health (Step 10.3) ---------------------------------------------------------------
+
+
+def test_health_queries(database):
+    parts = data.score_parts(database, "yellow_taxi", "2023-05")
+    assert len(parts) == 10 and parts["category"].iloc[0] == "pattern"  # lowest pass rate first
+    checks = data.checks(database, "yellow_taxi", "2023-05")
+    (checks_run,) = gold(database, "SELECT checks_run FROM gold_dataset_health "
+                                   "WHERE period = '2023-05'")[0]  # fmt: skip
+    assert len(checks) == checks_run == 25
+    assert checks["status"].tolist()[:4] == ["fail", "fail", "fail", "pass"]
+    profile = data.column_profile(database, "yellow_taxi", "2023-05")
+    assert profile["column_name"].tolist()[:2] == ["fare_amount", "trip_distance"]
+    items = data.trend_items(database, "yellow_taxi")
+    assert list(items)[:2] == ["rows_per_day", "quarantine_rate"] and items["rows_per_day"] == [""]
+    assert "fare_amount" in items["null_rate"] and "trip_unique" in items["rule_failure_rate"]
+    fares = data.trend(database, "yellow_taxi", "null_rate", "fare_amount")
+    assert fares["period"].tolist()[-1] == "2023-05"
+    assert (fares["value"].iloc[-1], fares["check_status"].iloc[-1]) == (0.685, "fail")
+    changes = data.schema_changes(database, "yellow_taxi")
+    assert changes[["column_name", "change"]].values.tolist() == [
+        ["Airport_fee", "renamed"], ["VendorID", "type_changed"]
+    ]  # fmt: skip
+
+
+def test_distribution(database):
+    shares = data.distribution(database, "yellow_taxi", "trip_distance", "2023-05")
+    assert shares["period"].unique().tolist() == ["2023-05", "2023-04"]  # against the month before
+    assert shares.groupby("period")["share"].sum().round(6).tolist() == [1.0, 1.0]
+    assert shares["bin"].iloc[0] == "below 0" and shares["bin"].iloc[14] == "50 and more"
+    first = data.distribution(database, "yellow_taxi", "trip_distance", "2023-01")
+    assert first["period"].unique().tolist() == ["2023-01"]
+    assert data.distribution(database, "yellow_taxi", "VendorID", "2023-05").empty  # not binned
+    assert data.bin_labels([0, 1.5]) == ["below 0", "0 to 1.5", "1.5 and more"]
+
+
+def test_the_health_page(database, monkeypatch):
+    at = app(monkeypatch, database)
+    at.switch_page("views/health.py").run()
+    assert not at.exception
+    assert at.title[0].value == "Dataset Health: yellow_taxi"
+    assert [s.value for s in at.subheader] == [
+        "Where the rows went", "Score by category in 2023-05", "Dataset checks in 2023-05",
+        "Columns in 2023-05", "One measure over time", "Distribution in 2023-05", "Schema changes",
+    ]  # fmt: skip
+    assert len(at.get("plotly_chart")) == 4
+    months, checks, columns, schema = (d.value for d in at.dataframe)
+    assert (len(months), len(checks), len(columns), len(schema)) == (5, 3, 19, 2)  # failed checks
+    at.toggle(key="only_failed").set_value(False).run()
+    assert len(at.dataframe[1].value) == 25
+    at.selectbox(key="metric").select("null_rate").run()
+    at.selectbox(key="item:null_rate").select("fare_amount").run()
+    at.selectbox(key="binned:yellow_taxi").select("fare_amount").run()
+    assert not at.exception

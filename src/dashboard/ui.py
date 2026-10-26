@@ -32,6 +32,8 @@ HEALTH_LABELS = {
 }
 HEALTH_WORDS = {"healthy": "Healthy", "warning": "Warning", "critical": "Critical",
                 "not_scored": "Not scored"}  # fmt: skip
+STATUS_WORDS = {"pass": "passed", "fail": "failed", "skipped": "skipped"}
+STATUS_LABELS = {"pass": "✅ pass", "fail": "❌ fail", "skipped": "⏭️ skipped"}
 SEVERITY_LABELS = {"critical": "⛔ critical", "high": "🔴 high", "medium": "🟠 medium",
                    "low": "⚪ low"}  # fmt: skip
 
@@ -91,6 +93,10 @@ def health_label(value: str | None) -> str:
 
 def severity_label(value: str | None) -> str:
     return SEVERITY_LABELS.get(value or "", value or "")
+
+
+def status_label(value: str | None) -> str:
+    return STATUS_LABELS.get(value or "", value or "")
 
 
 def format_time(value) -> str:
