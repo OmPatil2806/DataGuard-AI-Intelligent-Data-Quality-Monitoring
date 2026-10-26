@@ -195,3 +195,35 @@ def test_ml_anomaly_notebook_runs(tmp_path, monkeypatch):
     assert '"ml_incidents": [\n    "2023-05"\n  ]' in text
     assert '"ml_adds": [\n      "plausible_but_wrong-20pct"\n    ]' in text
     assert "1 ML incident(s)" in text
+
+
+def test_investigation_notebook_runs(tmp_path, monkeypatch):
+    """The planted pipeline, investigated, and three experiments (one concentrated fault)."""
+    from evaluation_fixture import make_config, make_sources
+    from pipeline_fixture import run_pipeline
+
+    from evaluation import run_experiments
+    from investigation import investigate
+
+    database = run_pipeline(tmp_path / "pipeline")
+    monkeypatch.setenv("DATAGUARD_REPORTS_DIR", str(tmp_path / "reports"))
+    assert investigate.main(["--database", str(database)]) == 0
+    config = make_config(tmp_path, tmp_path / "workspace")
+    plan = ["control", "null_spike-20pct", "null_spike_vendor-20pct"]
+    run_experiments.run_all(config, make_sources(tmp_path / "clean"), plan, out=print)
+
+    monkeypatch.setenv("DATAGUARD_DATABASE", str(database))
+    monkeypatch.setenv("DATAGUARD_FAULTS_CONFIG", str(tmp_path / "faults.yml"))
+    path = REPO_ROOT / "notebooks" / "07_investigation.ipynb"
+    notebook = nbformat.read(path, as_version=4)
+    client = NotebookClient(
+        notebook, timeout=300, kernel_name="python3", resources={"metadata": {"path": REPO_ROOT}}
+    )
+    client.execute()
+    outputs = [o for cell in notebook.cells if cell.cell_type == "code" for o in cell.outputs]
+    assert not [o for o in outputs if o.output_type == "error"]
+    text = "".join(str(o.get("text", "")) + str(o.get("data", {})) for o in outputs)
+    assert "6 incident(s) investigated" in text
+    assert '"explained": 6' in text and '"INC-0004": "unit_change"' in text
+    assert "# INC-0003 · NULL rate increase: fare_amount" in text  # most severe active, rendered
+    assert '"top1": 2' in text and '"false_where": 0' in text and '"where_found": 1' in text

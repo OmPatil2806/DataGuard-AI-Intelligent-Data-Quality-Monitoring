@@ -9,12 +9,13 @@ freshness, volume, drift) raise incidents, and **Gold** monitoring tables feed a
 Version 1 runs on real NYC TLC Yellow Taxi data with deliberately injected faults, so detection
 quality is measured instead of assumed.
 
-**Status:** Phase 7 complete (ML anomaly detection: an Isolation Forest for trips whose values
-do not fit together, in the pipeline and compared with the rules in
-[docs/ml_anomaly.md](docs/ml_anomaly.md)). Pending a run on the full data: the total-amount rule
-(open item O1), the measured rule results, the drift and score calibrations (notebooks 03 and
-04), the detection evaluation (notebook 05) and the anomaly model (notebook 06). In progress:
-Phase 8, the investigation engine (8.1 evidence pack, 8.2 where and when, 8.3 explainer, 8.4 reports, 8.5 explanation accuracy done).
+**Status:** Phase 8 complete (the investigation engine: for every incident an evidence pack,
+where and when, a template explanation with its evidence, actions pending approval and a
+report, measured against the injected faults in [docs/investigation.md](docs/investigation.md)).
+Pending a run on the full data: the total-amount rule (open item O1), the measured rule
+results, the drift and score calibrations (notebooks 03 and 04), the detection evaluation
+(notebook 05), the anomaly model (notebook 06) and the investigation (notebook 07). Next:
+Phase 9.
 
 ## Setup
 
@@ -290,6 +291,10 @@ test months the right cause comes first in 22 of the 24 detected experiments (to
 randomly spread fault gets a where/when, and the vendor fault at 20% is placed in vendor 2
 ([docs/detection_evaluation.md](docs/detection_evaluation.md#explanation-accuracy)).
 
+`notebooks/07_investigation.ipynb` shows every incident's likely cause, one incident in depth
+with its report, where and when, the actions, and the accuracy on the experiments. Details:
+[docs/investigation.md](docs/investigation.md).
+
 ## Profile the data
 
 Open `notebooks/01_data_profiling.ipynb` with the `.venv` kernel and run all cells. It reads
@@ -303,7 +308,7 @@ distributions per file. The findings on the full 2019-01 and 2023 data are in
 configs/      dataset list, quality rules, severity weights (YAML)
 data/         raw and processed data, DuckDB file (ignored by Git)
 docs/         design notes and data profiling findings
-notebooks/    profiling, rule experiments, baselines, calibration, evaluation
+notebooks/    profiling, rule experiments, baselines, calibration, evaluation, ML, investigation
 src/          pipeline code, one package per stage
 tests/        pytest suite
 ```

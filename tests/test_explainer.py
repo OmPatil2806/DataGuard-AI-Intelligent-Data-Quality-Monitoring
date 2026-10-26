@@ -229,3 +229,13 @@ def test_every_cause_id_is_unique_and_every_fact_is_documented():
     documented = set(ex.FACTS) | {f"{m}_ratio" for m in ("null_rate", "mean", "median", "p99",
                                                          "rows", "rows_per_day")}  # fmt: skip
     assert used <= documented, used - documented
+
+
+def test_every_playbook_and_cause_is_documented():
+    from common.config import REPO_ROOT
+
+    doc = (REPO_ROOT / "docs" / "investigation.md").read_text(encoding="utf-8")
+    for book in BOOKS.playbooks:
+        assert f"| `{book.id}` |" in doc, book.id
+        for cause in book.causes:
+            assert f"`{cause.id}`" in doc, cause.id
