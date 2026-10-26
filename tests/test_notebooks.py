@@ -227,3 +227,22 @@ def test_investigation_notebook_runs(tmp_path, monkeypatch):
     assert '"explained": 6' in text and '"INC-0004": "unit_change"' in text
     assert "# INC-0003 · NULL rate increase: fare_amount" in text  # most severe active, rendered
     assert '"top1": 2' in text and '"false_where": 0' in text and '"where_found": 1' in text
+
+
+def test_ved_profiling_notebook_runs(tmp_path, monkeypatch):
+    """The VED profile on the small fixture in the real files' shape."""
+    from ved_fixture import make_unpacked
+
+    monkeypatch.setenv("DATAGUARD_VED_DIR", str(make_unpacked(tmp_path / "incoming")))
+    monkeypatch.setenv("DATAGUARD_VED_CACHE", str(tmp_path / "cache"))
+    path = REPO_ROOT / "notebooks" / "08_ved_profiling.ipynb"
+    notebook = nbformat.read(path, as_version=4)
+    client = NotebookClient(
+        notebook, timeout=300, kernel_name="python3", resources={"metadata": {"path": REPO_ROOT}}
+    )
+    client.execute()
+    outputs = [o for cell in notebook.cells if cell.cell_type == "code" for o in cell.outputs]
+    assert not [o for o in outputs if o.output_type == "error"]
+    text = "".join(str(o.get("text", "")) + str(o.get("data", {})) for o in outputs)
+    assert "2 weekly file(s), 1,280 rows" in text and '"rows_lost_by_reader": 0' in text
+    assert '"negative_ms_rows": 5' in text and '"ICE": 2' in text

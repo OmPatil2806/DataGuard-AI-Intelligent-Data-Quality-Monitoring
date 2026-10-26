@@ -17,6 +17,8 @@ joblib>=1.4
 # Configuration and downloads
 pyyaml>=6.0,<7
 requests>=2.32,<3
+py7zr>=0.21,<2          # the VED archives (Phase 9)
+openpyxl>=3.1,<4        # the VED static data (Excel)
 
 # Dashboard
 streamlit>=1.38,<2

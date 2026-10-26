@@ -40,6 +40,21 @@ class Lookup:
     file: str
 
 
+ARCHIVE_KINDS = ("7z", "xlsx", "csv")
+
+
+@dataclass(frozen=True)
+class Archive:
+    """A source file that is not one file per period (Phase 9): a 7z archive of member files,
+    or a spreadsheet converted to CSV. Fetched by src/data_download/fetch_archives.py."""
+
+    name: str
+    url: str
+    file: str
+    kind: str  # 7z | xlsx | csv
+    members: str | None = None  # glob of the 7z members to unpack (default: all)
+
+
 @dataclass(frozen=True)
 class SilverJoin:
     lookup: str
@@ -64,6 +79,7 @@ class Dataset:
     silver_joins: tuple[SilverJoin, ...] = ()
     periods: tuple[str, ...] = ()
     lookups: tuple[Lookup, ...] = ()
+    archives: tuple[Archive, ...] = ()
 
     def url_for(self, period: str) -> str:
         if not self.url_template:
@@ -205,6 +221,23 @@ def _parse_dataset(name: str, raw: dict[str, Any]) -> Dataset:
         )
         for lookup_name, lookup in (raw.get("lookups") or {}).items()
     )
+    archives = []
+    for archive_name, raw_archive in (raw.get("archives") or {}).items():
+        at = f"{where}.archives.{archive_name}"
+        if not isinstance(raw_archive, dict):
+            raise ConfigError(f"{at} must be a mapping")
+        kind = str(_require(raw_archive, "kind", at))
+        if kind not in ARCHIVE_KINDS:
+            raise ConfigError(f"{at}: kind must be one of {', '.join(ARCHIVE_KINDS)}")
+        archives.append(
+            Archive(
+                name=archive_name,
+                url=str(_require(raw_archive, "url", at)),
+                file=str(_require(raw_archive, "file", at)),
+                kind=kind,
+                members=raw_archive.get("members"),
+            )
+        )
     dataset = Dataset(
         name=name,
         description=_require(raw, "description", where),
@@ -217,6 +250,7 @@ def _parse_dataset(name: str, raw: dict[str, Any]) -> Dataset:
         expected_lag_days=_parse_lag(raw.get("expected_lag_days"), where),
         periods=_parse_periods(raw.get("periods"), f"{where}.periods"),
         lookups=lookups,
+        archives=tuple(archives),
         columns=_parse_columns(raw.get("columns"), f"{where}.columns"),
         **_parse_silver(raw.get("silver"), f"{where}.silver"),
     )

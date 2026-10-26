@@ -38,13 +38,14 @@ TIMEOUT_SECONDS = 60
 RETRIES = 3
 BACKOFF_SECONDS = 2
 PARQUET_MAGIC = b"PAR1"
+MAGIC = {"7z": b"7z\xbc\xaf\x27\x1c", "xlsx": b"PK\x03\x04"}
 
 
 @dataclass(frozen=True)
 class Target:
     url: str
     dest: Path
-    kind: str  # "parquet" or "csv"
+    kind: str  # "parquet", "csv", "7z" or "xlsx"
 
 
 @dataclass(frozen=True)
@@ -103,6 +104,9 @@ def is_valid_file(path: Path, kind: str) -> bool:
         with path.open("rb") as f:
             first_line = f.readline().strip()
         return b"," in first_line and not first_line.startswith(b"<")
+    if kind in MAGIC:  # archives (Phase 9): a 7z archive, or an Excel workbook (a zip file)
+        with path.open("rb") as f:
+            return f.read(len(MAGIC[kind])) == MAGIC[kind]
     raise ValueError(f"unsupported file kind '{kind}'")
 
 

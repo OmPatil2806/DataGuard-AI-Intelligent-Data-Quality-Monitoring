@@ -14,8 +14,9 @@ where and when, a template explanation with its evidence, actions pending approv
 report, measured against the injected faults in [docs/investigation.md](docs/investigation.md)).
 Pending a run on the full data: the total-amount rule (open item O1), the measured rule
 results, the drift and score calibrations (notebooks 03 and 04), the detection evaluation
-(notebook 05), the anomaly model (notebook 06) and the investigation (notebook 07). Next:
-Phase 9.
+(notebook 05), the anomaly model (notebook 06) and the investigation (notebook 07). In
+progress: Phase 9, a second dataset, the Vehicle Energy Dataset (9.1 profile done:
+[docs/ved_profile.md](docs/ved_profile.md)).
 
 ## Setup
 
@@ -294,6 +295,22 @@ randomly spread fault gets a where/when, and the vendor fault at 20% is placed i
 `notebooks/07_investigation.ipynb` shows every incident's likely cause, one incident in depth
 with its report, where and when, the actions, and the accuracy on the experiments. Details:
 [docs/investigation.md](docs/investigation.md).
+
+## Second dataset: Vehicle Energy Dataset (Phase 9)
+
+```bash
+python src/data_download/fetch_archives.py --dataset ved_signals   # download and unpack (3.2 GB)
+python src/profiling/ved_profile.py                                # profile every row
+```
+
+[VED](https://github.com/gsoh/VED) (Apache License 2.0) is GPS and OBD-II signals of 384 cars
+in Ann Arbor, November 2017 to November 2018: 54 weekly CSVs (22.4 million rows) in two 7z
+archives, plus the vehicles' static data in Excel. `fetch_archives.py` fetches what
+`datasets.yml` lists under `archives`, checks and records each file, unpacks the weekly files and
+converts the workbooks to CSV. The profile reads every file with pyarrow and checks its rows
+against its lines: the files mix line endings, and DuckDB's CSV reader then skips the first
+32 MB of each file without an error (53.5% of the rows). Findings and the decisions they lead
+to: [docs/ved_profile.md](docs/ved_profile.md); charts in `notebooks/08_ved_profiling.ipynb`.
 
 ## Profile the data
 

@@ -73,7 +73,31 @@ datasets:
           columns: {Borough: dropoff_borough, Zone: dropoff_zone}
 
   ved_signals:
-    description: Vehicle Energy Dataset, OBD-II signals from 383 cars (added in Phase 9)
+    # Vehicle Energy Dataset (Oh, LeBlanc, Peng, IEEE T-ITS 2020; Apache License 2.0):
+    # https://github.com/gsoh/VED. Profiled in Phase 9.1 (docs/ved_profile.md); monitored from
+    # Phase 9.5. Weekly CSVs inside two 7z archives, plus the vehicles' static data in Excel.
+    description: Vehicle Energy Dataset, OBD-II signals from 383 cars in Ann Arbor (Phase 9)
     enabled: false
     format: csv
     frequency: weekly
+    # python src/data_download/fetch_archives.py --dataset ved_signals
+    # unpacks into <paths.incoming>/ved_signals/: VED_yymmdd_week.csv and the static data as CSV
+    archives:
+      dynamic_part1:
+        url: https://raw.githubusercontent.com/gsoh/VED/master/Data/VED_DynamicData_Part1.7z
+        file: VED_DynamicData_Part1.7z
+        kind: 7z
+        members: "VED_*_week.csv"
+      dynamic_part2:
+        url: https://raw.githubusercontent.com/gsoh/VED/master/Data/VED_DynamicData_Part2.7z
+        file: VED_DynamicData_Part2.7z
+        kind: 7z
+        members: "VED_*_week.csv"
+      static_ice_hev:
+        url: https://raw.githubusercontent.com/gsoh/VED/master/Data/VED_Static_Data_ICE%26HEV.xlsx
+        file: VED_Static_Data_ICE&HEV.xlsx
+        kind: xlsx
+      static_phev_ev:
+        url: https://raw.githubusercontent.com/gsoh/VED/master/Data/VED_Static_Data_PHEV%26EV.xlsx
+        file: VED_Static_Data_PHEV&EV.xlsx
+        kind: xlsx
