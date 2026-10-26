@@ -244,5 +244,5 @@ def test_ved_profiling_notebook_runs(tmp_path, monkeypatch):
     outputs = [o for cell in notebook.cells if cell.cell_type == "code" for o in cell.outputs]
     assert not [o for o in outputs if o.output_type == "error"]
     text = "".join(str(o.get("text", "")) + str(o.get("data", {})) for o in outputs)
-    assert "2 weekly file(s), 1,280 rows" in text and '"rows_lost_by_reader": 0' in text
+    assert "3 weekly file(s), 1,880 rows" in text and '"rows_lost_by_reader": 0' in text
     assert '"negative_ms_rows": 5' in text and '"ICE": 2' in text

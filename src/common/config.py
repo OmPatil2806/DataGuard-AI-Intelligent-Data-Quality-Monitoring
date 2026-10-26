@@ -41,6 +41,19 @@ class Lookup:
 
 
 ARCHIVE_KINDS = ("7z", "xlsx", "csv")
+SOURCE_KINDS = ("csv_files",)
+
+
+@dataclass(frozen=True)
+class Source:
+    """Source files that are not one file per period (Phase 9.2): prepare_source.py reads them
+    and writes one Parquet file per period (file_template) into the incoming folder."""
+
+    kind: str  # csv_files: CSV files in <incoming>/<dataset>/, grouped into periods by row
+    files: str  # glob of the files
+    period_sql: str  # SQL over a source row giving its period, YYYY-MM
+    null_values: tuple[str, ...] = ()  # text read as NULL (besides an empty field)
+    url: str | None = None  # where the source is published (lineage)
 
 
 @dataclass(frozen=True)
@@ -80,6 +93,7 @@ class Dataset:
     periods: tuple[str, ...] = ()
     lookups: tuple[Lookup, ...] = ()
     archives: tuple[Archive, ...] = ()
+    source: Source | None = None
 
     def url_for(self, period: str) -> str:
         if not self.url_template:
@@ -238,6 +252,25 @@ def _parse_dataset(name: str, raw: dict[str, Any]) -> Dataset:
                 members=raw_archive.get("members"),
             )
         )
+    source = None
+    if raw.get("source") is not None:
+        at = f"{where}.source"
+        raw_source = raw["source"]
+        if not isinstance(raw_source, dict):
+            raise ConfigError(f"{at} must be a mapping")
+        kind = str(_require(raw_source, "kind", at))
+        if kind not in SOURCE_KINDS:
+            raise ConfigError(f"{at}: kind must be one of {', '.join(SOURCE_KINDS)}")
+        nulls = raw_source.get("null_values") or []
+        if not isinstance(nulls, list):
+            raise ConfigError(f"{at}.null_values must be a list")
+        source = Source(
+            kind=kind,
+            files=str(_require(raw_source, "files", at)),
+            period_sql=str(_require(raw_source, "period_sql", at)),
+            null_values=tuple(str(v) for v in nulls),
+            url=raw_source.get("url"),
+        )
     dataset = Dataset(
         name=name,
         description=_require(raw, "description", where),
@@ -251,6 +284,7 @@ def _parse_dataset(name: str, raw: dict[str, Any]) -> Dataset:
         periods=_parse_periods(raw.get("periods"), f"{where}.periods"),
         lookups=lookups,
         archives=tuple(archives),
+        source=source,
         columns=_parse_columns(raw.get("columns"), f"{where}.columns"),
         **_parse_silver(raw.get("silver"), f"{where}.silver"),
     )
@@ -269,7 +303,13 @@ def _parse_dataset(name: str, raw: dict[str, Any]) -> Dataset:
     if clash:
         raise ConfigError(f"{where}.silver: column(s) defined twice: {', '.join(clash)}")
     if dataset.enabled:
-        for key in ("url_template", "file_template", "timestamp_column"):
+        # a dataset with a source block is prepared locally: it has no per-period URL
+        required = (
+            ("file_template", "timestamp_column")
+            if dataset.source
+            else ("url_template", "file_template", "timestamp_column")
+        )
+        for key in required:
             if not getattr(dataset, key):
                 raise ConfigError(f"missing required key '{key}' in {where} (dataset is enabled)")
         if not dataset.periods:

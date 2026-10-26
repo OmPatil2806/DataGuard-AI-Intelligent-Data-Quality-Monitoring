@@ -20,7 +20,8 @@ HEADER = [
     "Long Term Fuel Trim Bank 1[%]", "Long Term Fuel Trim Bank 2[%]",
 ]  # fmt: skip
 VEHICLES = {8: "ICE", 10: "EV", 11: "HEV", 12: "PHEV", 13: "ICE"}
-WEEKS = {"171101": 1.0, "171108": 8.0}  # file stamp -> DayNum of its first day
+WEEKS = {"171101": 1.0, "171108": 8.0, "171129": 29.0}  # stamp -> DayNum of its first day
+# the week of 2017-11-29 runs into December: its third day is 2017-12-01
 ROWS_PER_TRIP = 40
 
 

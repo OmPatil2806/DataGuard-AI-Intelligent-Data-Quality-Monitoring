@@ -131,7 +131,10 @@ def register_file(
             return Registration(existing, is_new=False, other_versions=others)
 
     row_count = parquet_row_count(path) if dataset.format == "parquet" else None
-    source_url = dataset.url_for(period) if dataset.url_template else None
+    if dataset.url_template:
+        source_url = dataset.url_for(period)
+    else:  # a prepared source (Phase 9.2): where the source files are published
+        source_url = dataset.source.url if dataset.source else None
     con.execute(
         """
         INSERT INTO file_manifest (dataset, period, file_name, sha256, size_bytes, source_url,

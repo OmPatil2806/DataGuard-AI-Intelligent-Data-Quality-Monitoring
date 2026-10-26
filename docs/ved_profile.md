@@ -90,6 +90,35 @@ By each row's own time (V5, V6):
 | No freshness check for VED: it is a closed, historical dataset | The source has no delivery schedule |
 | First rules (9.5): time since trip start ≥ 0; speed 0–200; load 0–100 (warn); SOC 0–100.001; GPS box; key unique; VehId known; RPM > 0 when moving (ICE, warn) | V7, V8, V9, V13 to V18 |
 
+## Ingestion (Step 9.2)
+
+```
+python src/ingestion/ingest_data.py --dataset ved_signals
+```
+
+`datasets.yml` gives VED a `source` block (`kind: csv_files`): the weekly CSVs are not loaded
+as they are. `ingest_data.py` first runs `src/ingestion/prepare_source.py`, which reads every
+weekly file with pyarrow (`NaN` read as NULL, V3), stops if a file's rows differ from its lines
+(V1), stages it as Parquet with `origin_file` and `origin_line` (the line after the header) and
+the row's month from `source.period_sql` (V5), and writes one file per month,
+`ved_signals_<YYYY-MM>.parquet`, with the rows in source order. From there VED is registered and
+loaded into Bronze like the taxi files.
+
+On the real files:
+
+| | Result |
+|---|---|
+| Staging and regrouping the 54 files | about 1.5 minutes |
+| Months written and loaded | 12 (2017-11 to 2018-10), **22,000,556 rows** |
+| Left out | 2018-11: 436,252 rows (10 days, V20), reported as outside the configured periods |
+| Every row accounted for | 22,000,556 + 436,252 = 22,436,808, every row of the 54 files |
+| Lineage | Bronze row 1 of 2017-11 is line 1 of `VED_171101_week.csv`, with the same values |
+| Run again | nothing staged or written, 12 files skipped |
+| A month file written again | the same SHA-256: no new version in the manifest |
+| `verify_bronze.py --dataset ved_signals` | 12 file versions, 0 failures |
+
+The taxi files have no `source` block and take the same path as before.
+
 ## Known limits
 
 - Profiled once, on the files as downloaded in Phase 9.1 (their SHA-256 is in

@@ -76,10 +76,29 @@ datasets:
     # Vehicle Energy Dataset (Oh, LeBlanc, Peng, IEEE T-ITS 2020; Apache License 2.0):
     # https://github.com/gsoh/VED. Profiled in Phase 9.1 (docs/ved_profile.md); monitored from
     # Phase 9.5. Weekly CSVs inside two 7z archives, plus the vehicles' static data in Excel.
-    description: Vehicle Energy Dataset, OBD-II signals from 383 cars in Ann Arbor (Phase 9)
+    description: Vehicle Energy Dataset, OBD-II signals from 384 cars in Ann Arbor (Phase 9)
     enabled: false
-    format: csv
-    frequency: weekly
+    # The source is weekly CSVs; ingest_data.py first regroups their rows into one Parquet file
+    # per month (src/ingestion/prepare_source.py), which is what is registered and loaded.
+    format: parquet
+    frequency: monthly
+    file_template: ved_signals_{period}.parquet
+    # 2018-11 has only 10 days (docs/ved_profile.md, V20): left out
+    periods:
+      start: "2017-11"
+      end: "2018-10"
+    source:
+      kind: csv_files
+      files: "VED_*_week.csv"
+      url: https://github.com/gsoh/VED
+      # the files write missing values as NaN (V3); every file's rows are checked against its
+      # lines, as DuckDB's CSV reader skips rows of these files without an error (V1)
+      null_values: ["NaN"]
+      # a row's month: DayNum is the trip's start in days (1.0 = 2017-11-01 00:00) and
+      # Timestamp(ms) the time since the trip started (V5)
+      period_sql: >-
+        strftime(TIMESTAMP '2017-11-01' + to_microseconds(CAST(round((DayNum - 1) * 86400e6
+        + "Timestamp(ms)" * 1000) AS BIGINT)), '%Y-%m')
     # python src/data_download/fetch_archives.py --dataset ved_signals
     # unpacks into <paths.incoming>/ved_signals/: VED_yymmdd_week.csv and the static data as CSV
     archives:

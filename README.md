@@ -15,7 +15,7 @@ report, measured against the injected faults in [docs/investigation.md](docs/inv
 Pending a run on the full data: the total-amount rule (open item O1), the measured rule
 results, the drift and score calibrations (notebooks 03 and 04), the detection evaluation
 (notebook 05), the anomaly model (notebook 06) and the investigation (notebook 07). In
-progress: Phase 9, a second dataset, the Vehicle Energy Dataset (9.1 profile done:
+progress: Phase 9, a second dataset, the Vehicle Energy Dataset (9.1 profile and 9.2 ingestion done:
 [docs/ved_profile.md](docs/ved_profile.md)).
 
 ## Setup
@@ -301,6 +301,7 @@ with its report, where and when, the actions, and the accuracy on the experiment
 ```bash
 python src/data_download/fetch_archives.py --dataset ved_signals   # download and unpack (3.2 GB)
 python src/profiling/ved_profile.py                                # profile every row
+python src/ingestion/ingest_data.py --dataset ved_signals          # one month per file, to Bronze
 ```
 
 [VED](https://github.com/gsoh/VED) (Apache License 2.0) is GPS and OBD-II signals of 384 cars
@@ -309,7 +310,10 @@ archives, plus the vehicles' static data in Excel. `fetch_archives.py` fetches w
 `datasets.yml` lists under `archives`, checks and records each file, unpacks the weekly files and
 converts the workbooks to CSV. The profile reads every file with pyarrow and checks its rows
 against its lines: the files mix line endings, and DuckDB's CSV reader then skips the first
-32 MB of each file without an error (53.5% of the rows). Findings and the decisions they lead
+32 MB of each file without an error (53.5% of the rows). A dataset like this has a `source`
+block in `datasets.yml`: `ingest_data.py` first regroups its rows into one Parquet file per month
+(`src/ingestion/prepare_source.py`, every row traced to its source line by `origin_file` and
+`origin_line`), then registers and loads them as usual. Findings and the decisions they lead
 to: [docs/ved_profile.md](docs/ved_profile.md); charts in `notebooks/08_ved_profiling.ipynb`.
 
 ## Profile the data

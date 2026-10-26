@@ -16,13 +16,15 @@ def result(tmp_path_factory):
 
 def test_every_row_is_read(result):
     files = result["files"]
-    assert files["file"].tolist() == ["VED_171101_week.csv", "VED_171108_week.csv"]
+    assert files["file"].tolist() == [
+        "VED_171101_week.csv", "VED_171108_week.csv", "VED_171129_week.csv",
+    ]  # fmt: skip
     assert (files["data_lines"] == files["rows_read"]).all()
     assert files["header_crlf"].all() and not files["rows_crlf"].any()
-    assert files["week_start"].tolist() == ["2017-11-01", "2017-11-08"]  # yymmdd, not mmddyy
+    assert files["week_start"].tolist()[:2] == ["2017-11-01", "2017-11-08"]  # yymmdd
     summary = vp.summary(result)
     assert summary["rows_lost_by_reader"] == 0
-    assert summary["rows"] == (5 * 3 * 2 + 2) * ROWS_PER_TRIP
+    assert summary["rows"] == (5 * 3 * 3 + 2) * ROWS_PER_TRIP
 
 
 def test_engine_types_from_both_static_files(result):
@@ -49,7 +51,7 @@ def test_time_from_daynum_and_milliseconds(result):
         "rows_after_week_end": 31,
     }  # 9 of 40 before midnight
     assert result["trips"]["trips_with_more_than_one_daynum"] == 0
-    assert result["months"]["month"].tolist() == ["2017-11"]
+    assert result["months"]["month"].tolist() == ["2017-11", "2017-12"]
     columns = result["columns"].set_index("column")
     assert columns.loc["Timestamp(ms)", "min"] == -5000  # a trip that starts negative
 

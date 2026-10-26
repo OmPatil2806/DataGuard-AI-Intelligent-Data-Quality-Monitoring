@@ -5,7 +5,9 @@
     python src/ingestion/ingest_data.py --months 2023-01 --force
 
 For each month the file in data/incoming/ is registered in file_manifest, written to
-Bronze unless that exact version is already there, and counted in one pipeline run.
+Bronze unless that exact version is already there, and counted in one pipeline run. A dataset
+with a `source` block (not one file per month, e.g. VED's weekly CSVs) is prepared first: its
+rows are regrouped into one file per month (ingestion/prepare_source.py).
 A missing file makes the run WARNING; a file that cannot be loaded makes it FAILED,
 while the other files are still loaded.
 
@@ -30,7 +32,7 @@ from common import db  # noqa: E402
 from common.config import ConfigError, Dataset, load_datasets_config  # noqa: E402
 from common.runs import Run, get_run, track_run  # noqa: E402
 from data_download.download_data import parse_months  # noqa: E402
-from ingestion import bronze_loader, manifest  # noqa: E402
+from ingestion import bronze_loader, manifest, prepare_source  # noqa: E402
 
 log = logging.getLogger("ingest_data")
 
@@ -146,6 +148,20 @@ def main(argv: list[str] | None = None) -> int:
         log.error("%s", exc)
         return 2
 
+    source_dir = args.source or config.paths["incoming"]
+    if dataset.source is not None:
+        try:
+            prepared = prepare_source.prepare(dataset, source_dir, months, force=args.force)
+        except (ConfigError, prepare_source.PrepareError) as exc:
+            log.error("cannot prepare %s: %s", dataset.name, exc)
+            return 2 if isinstance(exc, ConfigError) else 1
+        log.info(
+            "prepared   %d source file(s) staged, %d month file(s) written, %d unchanged",
+            len(prepared.staged), len(prepared.files), len(prepared.unchanged),
+        )  # fmt: skip
+        for period, rows in prepared.rows_outside.items():
+            log.warning("outside the configured periods: %s, %s rows left out", period, rows)
+
     command = "ingest_data.py " + " ".join(argv if argv is not None else sys.argv[1:])
     with db.connect(args.database) as con:
         db.init_schema(con)
@@ -153,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
             con,
             dataset,
             months,
-            args.source or config.paths["incoming"],
+            source_dir,
             args.bronze or config.paths["bronze"],
             command=command.strip(),
             force=args.force,
