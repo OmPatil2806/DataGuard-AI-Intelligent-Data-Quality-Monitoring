@@ -376,7 +376,7 @@ SCHEMA = [
     CREATE TABLE IF NOT EXISTS alert_log (
         incident_id  VARCHAR NOT NULL,
         severity     VARCHAR NOT NULL,
-        channel      VARCHAR NOT NULL,              -- outbox | slack
+        channel      VARCHAR NOT NULL,              -- outbox
         dataset      VARCHAR NOT NULL,
         status       VARCHAR NOT NULL CHECK (status IN {_in(ALERT_STATUSES)}),
         run_id       VARCHAR NOT NULL,

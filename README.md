@@ -306,15 +306,9 @@ python src/alerts/notifier.py --silent        # record current incidents as aler
 After every rebuild (the `alert` stage, after the investigation), each open incident of a
 severity listed in `configs/alerts.yml` (critical and high) is alerted once, with its likely
 cause, where/when, the actions waiting and a link to the dashboard; again only if it escalates,
-never when it is merely seen again. Alerts always go to `data/alerts/outbox.jsonl`; to Slack as
-well once an incoming webhook is set:
-
-```bash
-export DATAGUARD_SLACK_WEBHOOK=https://hooks.slack.com/services/...   # PowerShell: $env:DATAGUARD_SLACK_WEBHOOK="..."
-```
-
-The URL is a secret: keep it in your shell or `.env` (ignored by Git), never in a config file.
-Every alert is recorded in `alert_log`; a send that failed is retried by the next run. The
+never when it is merely seen again. Alerts are written to `data/alerts/outbox.jsonl` and shown
+on the dashboard; nothing leaves your machine.
+Every alert is recorded in `alert_log`; an alert that could not be written is retried by the next run. The
 fault experiments never alert (`rebuild.py --no-alerts`). On the real VED data, 2 of its 9
 incidents were alerted (the open high ones), and a second run sent nothing.
 

@@ -33,7 +33,7 @@ AI agent are Version 2 and plug into interfaces built in Version 1.
 | Incident resolve | After 2 consecutive clean runs |
 | ML | Isolation Forest on Silver rows; flags only (warn), never quarantines |
 | Investigation | Deterministic evidence pack + template explainer behind an `Explainer` interface |
-| Alerts | Slack webhook (SMTP optional) for new Critical and High incidents |
+| Alerts | Local outbox (`data/alerts/outbox.jsonl`) and `alert_log` for new Critical and High incidents, shown on the dashboard |
 | Runtime | Local Python virtual environment; no Docker, no servers |
 | CI | GitHub Actions: lint and tests on every push |
 
@@ -127,7 +127,7 @@ Unpack with `py7zr`, ingest into Bronze, `ved_signals` rules, lineage entries.
 
 ### P10 — Dashboard and alerts
 Streamlit, five pages: Overview, Dataset Health, Incidents (approve/dismiss), Quarantine Explorer
-(including ML flags), Lineage. DuckDB opened read-only. `notifier.py` for Slack.
+(including ML flags), Lineage. DuckDB opened read-only. `notifier.py` writes alerts to a local outbox.
 **Done when:** a broken file triggers an alert and appears on the dashboard.
 
 ### P11 — Orchestration, tests and demo
@@ -142,7 +142,7 @@ README with architecture, results and screenshots.
 2. **Data outputs:** `data/bronze/`, `data/silver/`, `data/quarantine/`, `data/dataguard.duckdb`,
    `models/`.
 3. **Five-page dashboard** with incident approval.
-4. **Slack alerts** for new Critical and High incidents.
+4. **Alerts** for new Critical and High incidents (local outbox, on the dashboard).
 5. **Measured results:** detection rate per fault, smallest detectable fault, false alarms on clean
    months, ML contribution, explanation accuracy, time to root cause — misses included.
 6. **Quality:** tests for every stage, CI, six notebooks, README and docs.

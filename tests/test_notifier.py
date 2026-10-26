@@ -8,7 +8,6 @@ import json
 
 import duckdb
 import pytest
-import requests
 from pipeline_fixture import run_pipeline
 
 from alerts import notifier as nt
@@ -17,23 +16,6 @@ from gold import rebuild
 from investigation import investigate
 
 OPEN_HIGH = ["INC-0003", "INC-0004", "INC-0005"]
-WEBHOOK = "https://hooks.slack.com/services/T000/B000/SECRET"
-
-
-class FakeResponse:
-    def __init__(self, status):
-        self.status_code = status
-
-
-class FakeSlack:
-    def __init__(self, statuses=()):
-        self.statuses, self.posts = list(statuses), []
-
-    def post(self, url, json, timeout):
-        self.posts.append((url, json))
-        if self.statuses and isinstance(self.statuses[0], Exception):
-            raise self.statuses.pop(0)
-        return FakeResponse(self.statuses.pop(0) if self.statuses else 200)
 
 
 @pytest.fixture
@@ -44,8 +26,8 @@ def env(tmp_path_factory, tmp_path):
     return {"db": str(database), "outbox": tmp_path / "outbox"}
 
 
-def run(env, *args, session=None):
-    return nt.main(["--database", env["db"], "--outbox", str(env["outbox"]), *args], session)
+def run(env, *args):
+    return nt.main(["--database", env["db"], "--outbox", str(env["outbox"]), *args])
 
 
 def log(env):
@@ -63,8 +45,6 @@ def outbox(env):
 
 def test_open_critical_and_high_incidents_are_alerted_once(env, capsys):
     assert run(env) == 0
-    out = capsys.readouterr().out
-    assert "slack: off (DATAGUARD_SLACK_WEBHOOK not set)" in out
     lines = outbox(env)
     assert [line["incident_id"] for line in lines] == OPEN_HIGH  # not resolved, not medium
     first = lines[0]
@@ -77,32 +57,15 @@ def test_open_critical_and_high_incidents_are_alerted_once(env, capsys):
     assert len(outbox(env)) == 3 and "0 alert(s) sent" in capsys.readouterr().out
 
 
-def test_slack(env, monkeypatch, capsys):
-    monkeypatch.setenv(nt.WEBHOOK_ENV, WEBHOOK)
-    slack = FakeSlack()
-    assert run(env, session=slack) == 0
-    assert [p[1]["text"].split()[1] for p in slack.posts] == OPEN_HIGH
-    assert all(url == WEBHOOK for url, _ in slack.posts)
-    out = capsys.readouterr().out
-    assert "SECRET" not in out and all("SECRET" not in str(row) for row in log(env))
-    assert {(r[2], r[3]) for r in log(env)} == {("outbox", "sent"), ("slack", "sent")}
-
-
-def test_a_failed_send_is_retried(env, monkeypatch, capsys):
-    monkeypatch.setenv(nt.WEBHOOK_ENV, WEBHOOK)
-    slack = FakeSlack([500, requests.ConnectionError("down"), 200])
-    assert run(env, session=slack) == 1
-    errors = {r[0]: r[4] for r in log(env) if r[2] == "slack"}
-    assert errors == {
-        "INC-0003": "Slack answered HTTP 500",
-        "INC-0004": "ConnectionError: could not reach Slack",
-        "INC-0005": None,
-    }
-    assert "2 failed" in capsys.readouterr().out
-    retry = FakeSlack()
-    assert run(env, session=retry) == 0
-    assert [p[1]["text"].split()[1] for p in retry.posts] == ["INC-0003", "INC-0004"]
-    assert {r[3] for r in log(env) if r[2] == "slack"} == {"sent"}
+def test_a_failed_write_is_retried(env, capsys):
+    env["outbox"].write_text("not a folder")  # the outbox folder cannot be made
+    assert run(env) == 1
+    assert {(r[3], r[4].split(":")[0]) for r in log(env)} == {("failed", "FileExistsError")}
+    assert "3 failed" in capsys.readouterr().out
+    env["outbox"].unlink()
+    assert run(env) == 0
+    assert [line["incident_id"] for line in outbox(env)] == OPEN_HIGH
+    assert {r[3] for r in log(env)} == {"sent"}
 
 
 def test_escalation_alerts_again(env):
@@ -120,13 +83,11 @@ def test_escalation_alerts_again(env):
     assert "escalated to critical" in line["text"]  # medium INC-0001 still never alerts
 
 
-def test_silent_records_without_sending(env, monkeypatch, capsys):
-    monkeypatch.setenv(nt.WEBHOOK_ENV, WEBHOOK)
-    slack = FakeSlack()
-    assert run(env, "--silent", session=slack) == 0
-    assert slack.posts == [] and outbox(env) == []
-    assert {r[3] for r in log(env)} == {"skipped"} and len(log(env)) == 6
-    assert run(env, session=slack) == 0 and slack.posts == []  # already counted as alerted
+def test_silent_records_without_sending(env, capsys):
+    assert run(env, "--silent") == 0
+    assert outbox(env) == []
+    assert {r[3] for r in log(env)} == {"skipped"} and len(log(env)) == 3
+    assert run(env) == 0 and outbox(env) == []  # already counted as alerted
     assert "recorded as alerted, nothing sent" in capsys.readouterr().out
 
 

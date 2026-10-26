@@ -39,19 +39,17 @@ def _isolated_reports_dir(tmp_path_factory):
 
 @pytest.fixture(autouse=True, scope="session")
 def _isolated_alerts(tmp_path_factory):
-    """Alerts of the tests go to their own outbox, and never to a real Slack webhook."""
+    """Alerts of the tests go to their own outbox, never to data/alerts in the repository."""
     import os
 
     folder = tmp_path_factory.mktemp("alerts")
-    previous = {k: os.environ.get(k) for k in ("DATAGUARD_ALERTS_DIR", "DATAGUARD_SLACK_WEBHOOK")}
+    previous = os.environ.get("DATAGUARD_ALERTS_DIR")
     os.environ["DATAGUARD_ALERTS_DIR"] = str(folder)
-    os.environ.pop("DATAGUARD_SLACK_WEBHOOK", None)
     yield folder
-    for key, value in previous.items():
-        if value is None:
-            os.environ.pop(key, None)
-        else:
-            os.environ[key] = value
+    if previous is None:
+        os.environ.pop("DATAGUARD_ALERTS_DIR", None)
+    else:
+        os.environ["DATAGUARD_ALERTS_DIR"] = previous
 
 
 @pytest.fixture

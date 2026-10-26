@@ -1,4 +1,4 @@
-"""Alert on new critical and high incidents: outbox file and Slack (Phase 10).
+"""Alert on new critical and high incidents, in a local outbox (Phase 10).
 
     python src/alerts/notifier.py                    # alert what is new, every dataset
     python src/alerts/notifier.py --dataset ved_signals
@@ -6,14 +6,12 @@
 
 Run after the investigation (the `alert` stage of rebuild.py), so a message carries the likely
 cause. An active incident whose severity is listed in configs/alerts.yml is alerted once per
-channel and severity: again only when it escalates, never when it is merely seen again. Every
-alert is recorded in alert_log; a send that failed is retried by the next run.
+severity: again only when it escalates, never when it is merely seen again. Each alert is a
+JSON line in <data_dir>/alerts/outbox.jsonl (DATAGUARD_ALERTS_DIR) and a row in alert_log, which
+the dashboard shows; nothing leaves the machine. An alert that could not be written is
+recorded as failed and retried by the next run.
 
-    outbox  one JSON line per alert in <data_dir>/alerts/outbox.jsonl (DATAGUARD_ALERTS_DIR)
-    slack   POST to the incoming webhook in $DATAGUARD_SLACK_WEBHOOK (skipped when unset);
-            the URL is a secret and is never stored or printed
-
-Exit code: 0, or 1 when a send failed (recorded; retried next time), 2 for a bad config.
+Exit code: 0, or 1 when an alert failed (recorded; retried next time), 2 for a bad config.
 """
 
 from __future__ import annotations
@@ -27,7 +25,6 @@ from pathlib import Path
 from typing import Any
 
 import duckdb
-import requests
 
 if __package__ in (None, ""):
     # Allow running this file directly: make src/ importable.
@@ -43,11 +40,9 @@ from common.config import (  # noqa: E402
 )
 from common.runs import track_run, utc_now  # noqa: E402
 
-CHANNELS = ("outbox", "slack")
-WEBHOOK_ENV = "DATAGUARD_SLACK_WEBHOOK"
+CHANNELS = ("outbox",)  # the column in alert_log leaves room for more channels later
 ALERTS_DIR_ENV = "DATAGUARD_ALERTS_DIR"
 OUTBOX = "outbox.jsonl"
-TIMEOUT_SECONDS = 10
 
 
 @dataclass(frozen=True)
@@ -153,20 +148,6 @@ def due(
     return [Alert(*row) for row in rows]
 
 
-def send_slack(text: str, session: requests.Session | None = None) -> str | None:
-    """POST to the webhook; None when sent, else the error (without the secret URL)."""
-    url = os.environ.get(WEBHOOK_ENV)
-    if not url:
-        return f"{WEBHOOK_ENV} is not set"
-    try:
-        response = (session or requests).post(url, json={"text": text}, timeout=TIMEOUT_SECONDS)
-        if response.status_code >= 400:
-            return f"Slack answered HTTP {response.status_code}"
-    except requests.RequestException as exc:
-        return f"{type(exc).__name__}: could not reach Slack"
-    return None
-
-
 def notify(
     con: duckdb.DuckDBPyConnection,
     run_id: str,
@@ -174,28 +155,25 @@ def notify(
     dataset: str | None = None,
     outbox: Path | None = None,
     silent: bool = False,
-    session: requests.Session | None = None,
 ) -> list[tuple[Alert, str, str, str | None]]:
-    """Send what is due on every channel; returns (alert, channel, status, error) per send."""
+    """Write what is due to the outbox; returns (alert, channel, status, error) per alert."""
     results = []
     folder = outbox or alerts_dir()
     for channel in settings.channels:
-        if channel == "slack" and not silent and not os.environ.get(WEBHOOK_ENV):
-            continue  # no webhook: Slack is off, nothing recorded, sent once it is set
         for alert in due(con, settings, channel, dataset):
             text = alert.text(settings.dashboard_url)
             error = None
             if silent:
                 status = "skipped"
-            elif channel == "outbox":
-                folder.mkdir(parents=True, exist_ok=True)
-                line = {"created_at": utc_now().isoformat(), "run_id": run_id, **alert.record(text)}
-                with (folder / OUTBOX).open("a", encoding="utf-8") as f:
-                    f.write(json.dumps(line) + "\n")
-                status = "sent"
             else:
-                error = send_slack(text, session)
-                status = "failed" if error else "sent"
+                line = {"created_at": utc_now().isoformat(), "run_id": run_id, **alert.record(text)}
+                try:
+                    folder.mkdir(parents=True, exist_ok=True)
+                    with (folder / OUTBOX).open("a", encoding="utf-8") as f:
+                        f.write(json.dumps(line) + "\n")
+                    status = "sent"
+                except OSError as exc:  # e.g. a full disk: recorded, retried next run
+                    status, error = "failed", f"{type(exc).__name__}: {exc}"
             con.execute(
                 "INSERT OR REPLACE INTO alert_log VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [alert.incident_id, alert.severity, channel, alert.dataset, status, run_id, text,
@@ -205,7 +183,7 @@ def notify(
     return results
 
 
-def main(argv: list[str] | None = None, session: requests.Session | None = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Alert on new critical and high incidents.")
     parser.add_argument("--dataset", help="only this dataset (default: every dataset)")
     parser.add_argument("--outbox", type=Path, help="outbox folder (default: data/alerts)")
@@ -220,13 +198,10 @@ def main(argv: list[str] | None = None, session: requests.Session | None = None)
     with db.connect(args.database) as con:
         db.init_schema(con)
         with track_run(con, args.dataset or "all", command="alert") as run:
-            results = notify(con, run.run_id, settings, args.dataset, args.outbox, args.silent,
-                             session)  # fmt: skip
+            results = notify(con, run.run_id, settings, args.dataset, args.outbox, args.silent)
             failed = [r for r in results if r[2] == "failed"]
             if failed:
-                run.warn(f"{len(failed)} alert(s) not sent, retried next run")
-    if "slack" in settings.channels and not os.environ.get(WEBHOOK_ENV) and not args.silent:
-        print(f"slack: off ({WEBHOOK_ENV} not set)")
+                run.warn(f"{len(failed)} alert(s) not written, retried next run")
     for alert, channel, status, error in results:
         note = f": {error}" if error else ""
         print(

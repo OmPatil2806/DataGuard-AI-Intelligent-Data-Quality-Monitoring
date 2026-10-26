@@ -16,8 +16,8 @@ Each stage is the same command a user would run by hand, in this order:
     6 score      src/quality/score.py
     7 investigate src/investigation/investigate.py   evidence, explanation, actions, report
                                                      for every incident
-    8 alert      src/alerts/notifier.py              new critical/high incidents to the outbox
-                                                     and Slack (--no-alerts to skip)
+    8 alert      src/alerts/notifier.py              new critical/high incidents to the alert
+                                                     outbox (--no-alerts to skip)
     9 gold       src/gold/monitoring_tables.py       every Gold table, one transaction
 
 --months limits the stages that work month by month (silver, checks, rules, ml); the checks still
