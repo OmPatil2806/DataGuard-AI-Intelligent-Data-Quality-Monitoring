@@ -272,7 +272,7 @@ def test_ved_monitoring_notebook_runs(tmp_path, monkeypatch):
 
     source = tmp_path / "experiment_source"  # the month files and lookups, no weekly CSVs
     prepare_source.prepare(load_datasets_config().dataset("ved_signals"), incoming)
-    shutil.copytree(incoming, source, ignore=shutil.ignore_patterns("VED_*", "staged"))
+    shutil.copytree(incoming, source, ignore=shutil.ignore_patterns("VED_*_week.csv", "staged"))
     data = yaml.safe_load((REPO_ROOT / "configs" / "faults_ved.yml").read_text())
     data |= {"target_month": "2017-12", "history": {"start": "2017-11", "end": "2017-11"},
              "sample_fraction": 1.0, "workspace": str(tmp_path / "workspace")}  # fmt: skip
