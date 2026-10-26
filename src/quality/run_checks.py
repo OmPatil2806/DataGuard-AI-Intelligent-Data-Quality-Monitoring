@@ -107,7 +107,7 @@ def run_checks(
     """Check the given months (default: every month in Bronze) in one tracked run."""
     settings = settings or dataset_checks.check_settings()
     limits = limits or baselines.settings_for(dataset.name)
-    bins = metrics.drift_bins() if bins is None else bins
+    bins = metrics.drift_bins(dataset.name) if bins is None else bins
     run_id = None
     try:
         with track_run(con, dataset.name, command=command) as run:

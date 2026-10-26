@@ -24,7 +24,7 @@ from typing import Any
 
 import duckdb
 
-from common.config import CONFIG_DIR, ConfigError, load_yaml
+from common.config import ConfigError, config_dir, load_yaml
 
 KINDS = ("where", "when")
 
@@ -48,14 +48,30 @@ class ConcentrationSettings:
     min_rows_per_day: int = 50
 
 
-def load_settings(path: Path | None = None) -> ConcentrationSettings:
-    path = Path(path) if path else CONFIG_DIR / "investigation.yml"
-    raw = load_yaml(path).get("concentration")
-    if not isinstance(raw, dict):
+THRESHOLDS = (
+    "min_rows", "min_share", "min_ratio", "min_z", "max_findings", "low_day_share",
+    "min_rows_per_day",
+)  # fmt: skip
+
+
+def _config(path: Path | None) -> tuple[Path, dict[str, Any]]:
+    path = Path(path) if path else config_dir() / "investigation.yml"
+    data = load_yaml(path)
+    if not isinstance(data.get("concentration"), dict):
         raise ConfigError(f"{path}: 'concentration' must be a mapping")
-    dims = raw.get("dimensions")
-    if not isinstance(dims, dict) or not dims:
-        raise ConfigError(f"{path}: concentration.dimensions must be a non-empty mapping")
+    datasets = data.get("datasets") or {}
+    if not isinstance(datasets, dict):
+        raise ConfigError(f"{path}: 'datasets' must map dataset names to settings")
+    return path, data
+
+
+def load_settings(dataset: str | None = None, path: Path | None = None) -> ConcentrationSettings:
+    """The thresholds, and the where/when dimensions of a dataset (none when not configured)."""
+    path, data = _config(path)
+    raw = data["concentration"]
+    dims = ((data.get("datasets") or {}).get(dataset) or {}).get("dimensions") or {}
+    if not isinstance(dims, dict):
+        raise ConfigError(f"{path}: datasets.{dataset}.dimensions must be a mapping")
     dimensions = []
     for name, spec in dims.items():
         if not isinstance(spec, dict) or not spec.get("sql"):
@@ -64,23 +80,22 @@ def load_settings(path: Path | None = None) -> ConcentrationSettings:
         if kind not in KINDS:
             raise ConfigError(f"{path}: dimension '{name}': kind must be one of {KINDS}")
         dimensions.append(Dimension(name, spec["sql"], kind))
-    numbers = {
-        k: raw[k]
-        for k in (
-            "min_rows",
-            "min_share",
-            "min_ratio",
-            "min_z",
-            "max_findings",
-            "low_day_share",
-            "min_rows_per_day",
-        )  # fmt: skip
-        if k in raw
-    }
+    numbers = {k: raw[k] for k in THRESHOLDS if k in raw}
     for key, value in numbers.items():
         if not isinstance(value, int | float) or isinstance(value, bool) or value < 0:
             raise ConfigError(f"{path}: concentration.{key} must be a number >= 0")
     return ConcentrationSettings(tuple(dimensions), **numbers)
+
+
+def sample_columns(dataset: str, path: Path | None = None) -> list[str] | None:
+    """The columns shown for a dataset's sample rows, or None when not configured."""
+    path, data = _config(path)
+    columns = ((data.get("datasets") or {}).get(dataset) or {}).get("sample_columns")
+    if columns is not None and not (
+        isinstance(columns, list) and all(isinstance(c, str) for c in columns)
+    ):
+        raise ConfigError(f"{path}: datasets.{dataset}.sample_columns must be a list of columns")
+    return columns
 
 
 def z_statistic(k_in: int, n_in: int, k_out: int, n_out: int) -> float | None:
@@ -150,9 +165,14 @@ def segments(
 
 
 def low_days(
-    con: duckdb.DuckDBPyConnection, source: str, period: str, settings: ConcentrationSettings
+    con: duckdb.DuckDBPyConnection,
+    source: str,
+    period: str,
+    settings: ConcentrationSettings,
+    timestamp: str,
 ) -> dict[str, Any]:
-    """Days of the month with far fewer rows than the month's median day (volume incidents)."""
+    """Days of the month with far fewer rows than the month's median day (volume incidents);
+    a row's day comes from `timestamp`, the dataset's timestamp column."""
     first = f"{period}-01"
     days = con.execute(
         f"""
@@ -160,7 +180,7 @@ def low_days(
             SELECT CAST(d AS DATE) AS day FROM generate_series(DATE '{first}',
                 DATE '{first}' + INTERVAL 1 MONTH - INTERVAL 1 DAY, INTERVAL 1 DAY) t(d)
         ), counts AS (
-            SELECT pickup_date AS day, count(*) AS n FROM {source} GROUP BY 1
+            SELECT CAST("{timestamp}" AS DATE) AS day, count(*) AS n FROM {source} GROUP BY 1
         )
         SELECT day, coalesce(n, 0) FROM days LEFT JOIN counts USING (day) ORDER BY day
         """

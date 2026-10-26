@@ -43,12 +43,12 @@ if __package__ in (None, ""):
 
 from common.config import (  # noqa: E402
     CHECK_CATEGORIES,
-    CONFIG_DIR,
     PERIOD_PATTERN,
     REPO_ROOT,
     ConfigError,
     _parse_periods,
     _require,
+    config_dir,
     load_datasets_config,
     load_yaml,
 )
@@ -149,7 +149,7 @@ def _explain(raw: Any, at: str) -> tuple[tuple[str, ...], str | dict[str, str] |
 
 
 def load_faults_config(path: Path | None = None) -> FaultsConfig:
-    path = Path(path) if path else CONFIG_DIR / "faults.yml"
+    path = Path(path) if path else config_dir() / "faults.yml"
     data = load_yaml(path)
     where = path.name
 

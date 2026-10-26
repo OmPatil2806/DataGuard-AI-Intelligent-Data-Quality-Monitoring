@@ -19,7 +19,7 @@ from quality.metrics import MonthMetrics, drift_bins
 
 SETTINGS = check_settings()
 LIMITS = baselines.settings_for("yellow_taxi")
-EDGES = drift_bins()["trip_distance"]
+EDGES = drift_bins("yellow_taxi")["trip_distance"]
 
 # Share of rows with the trip metadata missing, measured in profiling (data_profile.md, section 3).
 REAL_NULLS = {

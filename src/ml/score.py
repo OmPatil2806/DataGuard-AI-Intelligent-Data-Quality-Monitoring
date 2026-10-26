@@ -203,6 +203,9 @@ def overview(results: list[MonthResult]) -> pd.DataFrame:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Score Silver months with the anomaly model.")
     parser.add_argument("--months", help="e.g. 2023-06 or 2023-01:2023-03 (default: all)")
+    parser.add_argument(
+        "--dataset", help="score only if this is the dataset of the ML config (else skip, exit 0)"
+    )
     parser.add_argument("--model", help="model id (default: the current model)")
     parser.add_argument("--config", type=Path, help="ML config (default: configs/ml.yml)")
     parser.add_argument("--database", type=Path, help="DuckDB file (default: paths.duckdb)")
@@ -216,6 +219,11 @@ def main(argv: list[str] | None = None) -> int:
     except ConfigError as exc:
         print(f"error: {exc}")
         return 2
+    if args.dataset and args.dataset != config.dataset:
+        # one model, for the dataset named in configs/ml.yml: other datasets have no ML stage
+        print(f"scoring skipped: no anomaly model configured for '{args.dataset}' "
+              f"(configs/ml.yml is for '{config.dataset}')")  # fmt: skip
+        return 0
     try:
         trained = load_model(config, args.model)
     except FileNotFoundError as exc:

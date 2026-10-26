@@ -38,6 +38,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from common import db  # noqa: E402
+from common.config import load_datasets_config  # noqa: E402
 from common.runs import utc_now  # noqa: E402
 from incidents.incident_manager import Incident, IncidentError, get_incident  # noqa: E402
 from investigation import concentration as conc  # noqa: E402
@@ -45,18 +46,7 @@ from quality.rules import load_rules  # noqa: E402
 from silver.process_silver import current_silver  # noqa: E402
 
 SAMPLE_ROWS = 5
-SAMPLE_COLUMNS = (
-    "tpep_pickup_datetime",
-    "tpep_dropoff_datetime",
-    "VendorID",
-    "PULocationID",
-    "DOLocationID",
-    "passenger_count",
-    "trip_distance",
-    "fare_amount",
-    "total_amount",
-    "payment_type",
-)
+DEFAULT_SAMPLE_COLUMNS = 10  # without sample_columns: the first standard columns
 CHECK_DEFINITIONS = {
     "schema": "the month's columns and types against the expected schema (configs/datasets.yml)",
     "volume": "rows per day against the median of the earlier months",
@@ -450,7 +440,11 @@ def samples(
                 [incident.dataset, period, model, frame["bronze_row_id"].tolist()],
             ).fetchall()
         )
-    columns = [c for c in SAMPLE_COLUMNS if c in frame.columns]
+    wanted = conc.sample_columns(incident.dataset)
+    if wanted is None:
+        standard = load_datasets_config().dataset(incident.dataset).columns
+        wanted = [c for c, _ in standard][:DEFAULT_SAMPLE_COLUMNS]
+    columns = [c for c in wanted if c in frame.columns]
     result = []
     for _, row in frame.iterrows():
         row_id = int(row["bronze_row_id"])
@@ -475,9 +469,14 @@ def concentration(
     settings: conc.ConcentrationSettings | None = None,
 ) -> dict[str, Any]:
     """Where and when the problem sits in the last month seen."""
-    settings = settings or conc.load_settings()
+    settings = settings or conc.load_settings(incident.dataset)
     period = incident.last_seen_period
     if incident.rule_id == "volume":
+        timestamp = load_datasets_config().dataset(incident.dataset).timestamp_column
+        if not timestamp:
+            reason = "the dataset has no timestamp_column"
+            return {"analysed": False, "reason": reason, "period": period,
+                    "verdict": f"not analysed: {reason}"}  # fmt: skip
         files = current_silver(con, incident.dataset).get(period)
         if files is None:
             return {"analysed": False, "reason": "no Silver for the month", "period": period}
@@ -485,7 +484,7 @@ def concentration(
             f"read_parquet([{', '.join(_sql_path(p) for p in files)}], union_by_name = true, "
             "hive_partitioning = false)"
         )
-        days = conc.low_days(con, source, period, settings)
+        days = conc.low_days(con, source, period, settings, timestamp)
         if days["analysed"]:
             days["verdict"] = (
                 f"when: {len(days['days'])} day(s) with fewer than "
@@ -499,6 +498,10 @@ def concentration(
     rows = month_rows(con, incident, period)
     if rows is None:
         reason = "month-level finding" if not is_row_level(incident) else "no rows to compare"
+        return {"analysed": False, "reason": reason, "period": period, "findings": [],
+                "verdict": f"not analysed: {reason}"}  # fmt: skip
+    if not settings.dimensions:
+        reason = f"no where/when dimensions for {incident.dataset} (configs/investigation.yml)"
         return {"analysed": False, "reason": reason, "period": period, "findings": [],
                 "verdict": f"not analysed: {reason}"}  # fmt: skip
     found = conc.segments(con, *rows, settings)

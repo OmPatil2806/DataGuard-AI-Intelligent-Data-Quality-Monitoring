@@ -48,7 +48,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from common import db  # noqa: E402
-from common.config import CONFIG_DIR, ConfigError, load_datasets_config  # noqa: E402
+from common.config import ConfigError, config_dir, load_datasets_config  # noqa: E402
 from evaluation import fault_injector as fi  # noqa: E402
 from gold import monitoring_tables, rebuild  # noqa: E402
 from incidents import incidents_cli  # noqa: E402
@@ -115,7 +115,7 @@ def fingerprint(config: fi.FaultsConfig, files: dict[str, Path]) -> str:
             for key, path in sorted(files.items())
             if key != config.target_month
         },
-        "ml_config": fi.sha256_of(CONFIG_DIR / "ml.yml"),
+        "ml_config": fi.sha256_of(config_dir() / "ml.yml"),
     }
     return hashlib.sha256(json.dumps(parts, sort_keys=True).encode()).hexdigest()
 

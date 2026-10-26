@@ -83,6 +83,7 @@ def build_targets(
         targets += [
             Target(lookup.url, dest_dir / lookup.file, Path(lookup.file).suffix.lstrip("."))
             for lookup in dataset.lookups
+            if lookup.url  # lookups without a URL come with the source (fetch_archives.py)
         ]
     return targets
 

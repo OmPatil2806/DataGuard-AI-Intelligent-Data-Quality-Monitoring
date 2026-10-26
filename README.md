@@ -15,7 +15,7 @@ report, measured against the injected faults in [docs/investigation.md](docs/inv
 Pending a run on the full data: the total-amount rule (open item O1), the measured rule
 results, the drift and score calibrations (notebooks 03 and 04), the detection evaluation
 (notebook 05), the anomaly model (notebook 06) and the investigation (notebook 07). In
-progress: Phase 9, a second dataset, the Vehicle Energy Dataset (9.1 profile, 9.2 ingestion and 9.3 standardization done:
+progress: Phase 9, a second dataset, the Vehicle Energy Dataset (9.1 profile, 9.2 ingestion, 9.3 standardization and 9.4 datasets by config done:
 [docs/ved_profile.md](docs/ved_profile.md)).
 
 ## Setup
@@ -317,6 +317,14 @@ block in `datasets.yml`: `ingest_data.py` first regroups its rows into one Parqu
 names (`Vehicle Speed[km/h]` -> `speed_kmh`) and computes the row time from the trip's start
 day and milliseconds (`row_time`, a column with `sql:`), before any rule runs. Findings and the decisions they lead
 to: [docs/ved_profile.md](docs/ved_profile.md); charts in `notebooks/08_ved_profiling.ipynb`.
+
+## Adding a dataset
+
+A new dataset needs configuration only: its files, standard schema, lookups and Silver columns
+in `datasets.yml`, its rules, cold-start limits and drift bins in `quality_rules.yml`, and
+optionally its where/when dimensions in `investigation.yml`. `tests/test_new_dataset.py` proves
+it with a made-up dataset defined only in a temporary config folder (`DATAGUARD_CONFIG_DIR`).
+Checklist: [docs/adding_a_dataset.md](docs/adding_a_dataset.md).
 
 ## Profile the data
 

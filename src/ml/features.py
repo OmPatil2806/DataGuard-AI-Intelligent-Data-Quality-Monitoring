@@ -27,13 +27,13 @@ if __package__ in (None, ""):
 
 from common import db  # noqa: E402
 from common.config import (  # noqa: E402
-    CONFIG_DIR,
     PERIOD_PATTERN,
     REPO_ROOT,
     SEVERITIES,
     ConfigError,
     _parse_periods,
     _require,
+    config_dir,
     load_datasets_config,
     load_yaml,
 )
@@ -73,7 +73,7 @@ def _rate(value: Any, where: str) -> float:
 
 
 def load_ml_config(path: Path | None = None) -> MLConfig:
-    path = Path(path) if path else CONFIG_DIR / "ml.yml"
+    path = Path(path) if path else config_dir() / "ml.yml"
     data = load_yaml(path)
     where = path.name
 

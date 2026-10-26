@@ -10,7 +10,8 @@ Each stage is the same command a user would run by hand, in this order:
     2 checks     src/quality/run_checks.py           dataset-level checks, one tracked run
     3 rules      src/quality/run_rules.py            row rule results, one tracked run
     4 ml         src/ml/score.py --if-trained        anomaly flags (skipped until a model is
-                                                     trained with src/ml/train.py)
+                                                     trained with src/ml/train.py, and for a
+                                                     dataset other than configs/ml.yml's)
     5 incidents  src/incidents/incidents_cli.py update
     6 score      src/quality/score.py
     7 investigate src/investigation/investigate.py   evidence, explanation, actions, report
@@ -73,7 +74,7 @@ def stages(args: argparse.Namespace) -> list[tuple[str, Callable[[list[str]], in
         ),
         ("checks", run_checks.main, [*dataset, *months, *database]),
         ("rules", run_rules.main, [*dataset, *months, *lookups, *database]),
-        ("ml", ml_score.main, [*months, *database, "--if-trained"]),
+        ("ml", ml_score.main, [*dataset, *months, *database, "--if-trained"]),
         ("incidents", incidents_cli.main, [*database, *dataset, "update"]),
         ("score", score.main, [*dataset, *database]),
         ("investigate", investigate.main, [*dataset, *reports, *database]),

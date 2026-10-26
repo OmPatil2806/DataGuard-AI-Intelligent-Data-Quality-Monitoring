@@ -108,6 +108,7 @@ def test_stages_run_in_order(monkeypatch, tmp_path, capsys):
     assert argv["rules"][argv["rules"].index("--lookups") + 1] == "L"
     assert argv["incidents"][-1] == "update"
     assert "--if-trained" in argv["ml"]  # no model trained yet is not a failure
+    assert argv["ml"][argv["ml"].index("--dataset") + 1] == "yellow_taxi"  # its own model only
     assert argv["gold"] == ["--database", str(tmp_path / "d.duckdb")]
     assert "--months" not in argv["silver"]
     calls.clear()

@@ -171,3 +171,10 @@ def test_errors(env, tmp_path, capsys):
     argv = ["--config", str(env["config_file"]), "--database", str(env["db"])]
     assert ms.main([*argv, "--months", "2024-01"]) == 1
     assert "no Silver to score" in capsys.readouterr().out
+
+
+def test_other_datasets_are_skipped(capsys):
+    from ml import score as ml_score
+
+    assert ml_score.main(["--dataset", "ved_signals"]) == 0
+    assert "no anomaly model configured for 'ved_signals'" in capsys.readouterr().out

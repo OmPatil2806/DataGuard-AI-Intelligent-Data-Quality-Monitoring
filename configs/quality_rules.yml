@@ -22,13 +22,15 @@ defaults:
   drift:
     psi_medium: 0.10
     psi_high: 0.20
-    # Fixed bin edges per column (standard schema). Every month is binned the same way, so
-    # months can be compared. Values below the first edge and above the last edge fall into
-    # two open-ended bins, which keeps extreme values from distorting the comparison.
+    # Fixed bin edges per dataset and column (standard schema). Every month is binned the same
+    # way, so months can be compared. Values below the first edge and above the last edge fall
+    # into two open-ended bins, which keeps extreme values from distorting the comparison.
+    # A dataset without bins gets no drift check (and no mean/median/p99 metrics).
     bins:
-      trip_distance: [0, 0.5, 1, 1.5, 2, 3, 4, 5, 7, 10, 15, 20, 30, 50]
-      fare_amount: [0, 5, 7.5, 10, 12.5, 15, 20, 25, 30, 40, 50, 70, 100]
-      total_amount: [0, 10, 15, 20, 25, 30, 40, 50, 70, 100, 150]
+      yellow_taxi:
+        trip_distance: [0, 0.5, 1, 1.5, 2, 3, 4, 5, 7, 10, 15, 20, 30, 50]
+        fare_amount: [0, 5, 7.5, 10, 12.5, 15, 20, 25, 30, 40, 50, 70, 100]
+        total_amount: [0, 10, 15, 20, 25, 30, 40, 50, 70, 100, 150]
   freshness:
     # replay: historical files were downloaded long after they were published, so a file
     #         counts as delivered on time unless file_manifest.simulated_delivered_at says

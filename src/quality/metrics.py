@@ -56,8 +56,9 @@ def days_in_month(period: str) -> int:
     return pd.Period(period, freq="M").days_in_month
 
 
-def drift_bins(path: Path | None = None) -> dict[str, list[float]]:
-    return load_quality_rules(path)["defaults"]["drift"].get("bins") or {}
+def drift_bins(dataset: str, path: Path | None = None) -> dict[str, list[float]]:
+    """The drift bin edges of a dataset's columns (configs/quality_rules.yml)."""
+    return (load_quality_rules(path)["defaults"]["drift"].get("bins") or {}).get(dataset) or {}
 
 
 def bin_sql(column: str, edges: list[float]) -> str:
@@ -186,7 +187,7 @@ def collect(
     bins: dict[str, list[float]] | None = None,
 ) -> dict[str, MonthMetrics]:
     """Metrics for the current Bronze version of each month, computed only when missing."""
-    bins = drift_bins() if bins is None else bins
+    bins = drift_bins(dataset.name) if bins is None else bins
     versions = current_versions(con, dataset)
     result = {}
     for period in months or list(versions):
@@ -203,18 +204,18 @@ def overview(metrics: dict[str, MonthMetrics]) -> pd.DataFrame:
     records = []
     for period, m in metrics.items():
         worst = max(m.null_rates.items(), key=lambda kv: kv[1]) if m.null_rates else ("", 0.0)
-        distance = m.stats.get("trip_distance", {})
-        records.append(
-            {
-                "period": period,
-                "version": m.sha256[:12],
-                "rows": m.rows,
-                "rows_per_day": round(m.rows_per_day),
-                "raw_columns": len(m.raw_schema),
-                "most_nulls": f"{worst[0]} {100 * worst[1]:.2f}%",
-                "distance_median": distance.get("median"),
-            }
-        )
+        record = {
+            "period": period,
+            "version": m.sha256[:12],
+            "rows": m.rows,
+            "rows_per_day": round(m.rows_per_day),
+            "raw_columns": len(m.raw_schema),
+            "most_nulls": f"{worst[0]} {100 * worst[1]:.2f}%",
+        }
+        if m.stats:  # the median of the first binned column (trip_distance for the taxis)
+            column, stats = next(iter(m.stats.items()))
+            record[f"{column}_median"] = stats.get("median")
+        records.append(record)
     return pd.DataFrame(records)
 
 

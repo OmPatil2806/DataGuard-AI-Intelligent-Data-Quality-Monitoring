@@ -70,8 +70,9 @@ Silver.
 
 ## Where and when
 
-`src/investigation/concentration.py`, settings in `configs/investigation.yml`. The affected
-rows of a row-level incident are compared with all rows of the month, segment by segment:
+`src/investigation/concentration.py`, settings in `configs/investigation.yml` (thresholds
+shared; dimensions and sample columns per dataset, under `datasets:`). The affected rows of a
+row-level incident are compared with all rows of the month, segment by segment; for the taxis:
 
 | Kind | Dimensions |
 |---|---|

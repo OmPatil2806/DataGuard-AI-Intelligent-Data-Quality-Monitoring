@@ -8,7 +8,7 @@ import pytest
 from common.config import ConfigError
 from investigation import concentration as conc
 
-SETTINGS = conc.load_settings()
+SETTINGS = conc.load_settings("yellow_taxi")
 ROWS = 3000
 
 
@@ -114,17 +114,17 @@ def test_low_days():
     frame = month(6, rows=6000)
     con = duckdb.connect()
     con.register("all_rows", frame)
-    assert conc.low_days(con, "all_rows", "2023-06", SETTINGS)["days"] == []
+    assert conc.low_days(con, "all_rows", "2023-06", SETTINGS, "tpep_pickup_datetime")["days"] == []
     missing = frame[~frame["pickup_date"].astype(str).isin(["2023-06-10", "2023-06-11"])]
     con.register("missing", missing)
-    days = conc.low_days(con, "missing", "2023-06", SETTINGS)
+    days = conc.low_days(con, "missing", "2023-06", SETTINGS, "tpep_pickup_datetime")
     assert [d["day"] for d in days["days"]] == ["2023-06-10", "2023-06-11"]
     assert days["days"][0]["rows"] == 0 and days["median_rows_per_day"] >= 150
     thin = frame.sample(frac=0.5, random_state=1)  # half the rows, evenly
     con.register("thin", thin)
-    assert conc.low_days(con, "thin", "2023-06", SETTINGS)["days"] == []
+    assert conc.low_days(con, "thin", "2023-06", SETTINGS, "tpep_pickup_datetime")["days"] == []
     con.register("few", frame.head(300))
-    assert not conc.low_days(con, "few", "2023-06", SETTINGS)["analysed"]
+    assert not conc.low_days(con, "few", "2023-06", SETTINGS, "tpep_pickup_datetime")["analysed"]
 
 
 def test_z_statistic():
@@ -136,13 +136,22 @@ def test_z_statistic():
 def test_settings(tmp_path):
     assert {d.name for d in SETTINGS.dimensions} >= {"vendor", "pickup_zone", "pickup_hour"}
     assert {d.kind for d in SETTINGS.dimensions} == {"where", "when"}
+    assert conc.load_settings("ved_signals").min_z == SETTINGS.min_z  # thresholds are shared
+    assert conc.load_settings("not_configured").dimensions == ()  # no where/when
+    assert conc.sample_columns("yellow_taxi")[0] == "tpep_pickup_datetime"
+    assert conc.sample_columns("not_configured") is None
     bad = tmp_path / "investigation.yml"
-    bad.write_text("concentration:\n  dimensions:\n    v: {sql: VendorID, kind: why}\n")
+    bad.write_text(
+        "concentration: {}\ndatasets:\n  d:\n    dimensions:\n      v: {sql: V, kind: why}\n"
+    )
     with pytest.raises(ConfigError, match="kind"):
-        conc.load_settings(bad)
-    bad.write_text("concentration:\n  dimensions:\n    v: {sql: VendorID}\n  min_z: -1\n")
+        conc.load_settings("d", bad)
+    bad.write_text("concentration:\n  min_z: -1\n")
     with pytest.raises(ConfigError, match="min_z"):
-        conc.load_settings(bad)
+        conc.load_settings("d", bad)
+    bad.write_text("concentration: {}\ndatasets:\n  d:\n    sample_columns: a\n")
+    with pytest.raises(ConfigError, match="sample_columns"):
+        conc.sample_columns("d", bad)
     bad.write_text("other: 1\n")
     with pytest.raises(ConfigError, match="mapping"):
-        conc.load_settings(bad)
+        conc.load_settings("d", bad)

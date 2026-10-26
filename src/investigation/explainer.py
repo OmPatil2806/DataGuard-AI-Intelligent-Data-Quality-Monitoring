@@ -30,7 +30,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from common import db  # noqa: E402
-from common.config import CONFIG_DIR, ConfigError, load_yaml  # noqa: E402
+from common.config import ConfigError, config_dir, load_yaml  # noqa: E402
 from incidents.incident_manager import IncidentError  # noqa: E402
 from investigation import evidence_pack as ep  # noqa: E402
 
@@ -158,7 +158,7 @@ def _condition(raw: Any, where: str, signal: bool) -> Condition:
 
 
 def load_playbooks(path: Path | None = None) -> Playbooks:
-    path = Path(path) if path else CONFIG_DIR / "playbooks.yml"
+    path = Path(path) if path else config_dir() / "playbooks.yml"
     raw = load_yaml(path)
     actions = raw.get("actions") or {}
     if not isinstance(actions, dict):

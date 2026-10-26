@@ -127,13 +127,13 @@ def main(argv: list[str] | None = None) -> int:
             log.info("created    %s: %d of %d rows", name, result.sample_rows, result.source_rows)
 
     # Lookups are small: copy them so data/sample/ is self-contained.
-    for lookup in dataset.lookups:
-        src = source_dir / lookup.file
+    for name in (n for lookup in dataset.lookups for n in lookup.paths):
+        src = source_dir / name
         if src.is_file():
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dest_dir / lookup.file)
+            (dest_dir / name).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest_dir / name)
         else:
-            log.warning("missing    %s (run download_data.py first)", lookup.file)
+            log.warning("missing    %s (run download_data.py first)", name)
 
     created = sum(r.status == "created" for r in results)
     skipped = sum(r.status == "skipped" for r in results)

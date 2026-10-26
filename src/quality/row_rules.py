@@ -261,17 +261,25 @@ def count_failures(
 
 
 def load_lookups(con: duckdb.DuckDBPyConnection, dataset: Dataset, folder: Path) -> list[str]:
-    """Create one lookup_<name> table per dataset lookup, read from `folder`."""
+    """Create one lookup_<name> table per dataset lookup, read from `folder`. A lookup of
+    several files stacks them by column name, after renaming the columns in `rename`."""
     created = []
     for lookup in dataset.lookups:
-        path = Path(folder) / lookup.file
-        if not path.is_file():
-            raise FileNotFoundError(f"lookup file not found: {path} (run download_data.py)")
+        parts = []
+        for name in lookup.paths:
+            path = Path(folder) / name
+            if not path.is_file():
+                raise FileNotFoundError(f"lookup file not found: {path} (run download_data.py)")
+            # Default CSV settings keep text such as "N/A" as text, not as a missing value.
+            source = f"read_csv({_sql_path(path)})"
+            columns = [r[0] for r in con.execute(f"DESCRIBE SELECT * FROM {source}").fetchall()]
+            renamed = dict(lookup.rename)
+            select = ", ".join(
+                f"{_q(c)} AS {_q(renamed[c])}" if c in renamed else _q(c) for c in columns
+            )
+            parts.append(f"SELECT {select} FROM {source}")
         table = _q(LOOKUP_PREFIX + lookup.name)
-        # Default CSV settings keep text such as "N/A" as text, not as a missing value.
-        con.execute(
-            f"CREATE OR REPLACE TEMP TABLE {table} AS SELECT * FROM read_csv({_sql_path(path)})"
-        )
+        con.execute(f"CREATE OR REPLACE TEMP TABLE {table} AS " + " UNION ALL BY NAME ".join(parts))
         created.append(LOOKUP_PREFIX + lookup.name)
     return created
 

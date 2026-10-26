@@ -13,10 +13,10 @@ from pathlib import Path
 from typing import Any
 
 from common.config import (
-    CONFIG_DIR,
     SEVERITIES,
     ConfigError,
     Dataset,
+    config_dir,
     load_datasets_config,
     load_quality_rules,
 )
@@ -237,7 +237,7 @@ def load_rules(
     """The validated row-level rules of one dataset, in file order."""
     if isinstance(dataset, str):
         dataset = load_datasets_config().dataset(dataset)
-    path = Path(path) if path else CONFIG_DIR / "quality_rules.yml"
+    path = Path(path) if path else config_dir() / "quality_rules.yml"
     config = load_quality_rules(path)
     raw_rules = config["rules"].get(dataset.name) if isinstance(config["rules"], dict) else None
     if raw_rules is None:

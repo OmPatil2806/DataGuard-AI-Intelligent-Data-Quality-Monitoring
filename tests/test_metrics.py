@@ -74,7 +74,7 @@ def test_null_rates_match_pandas(con, taxi):
 
 
 def test_histograms_match_numpy(con, taxi):
-    bins = metrics.drift_bins()
+    bins = metrics.drift_bins("yellow_taxi")
     jan = metrics.collect(con, taxi)["2023-01"]
     trips = pd.read_parquet(TRIPS)
     for column, edges in bins.items():
@@ -143,7 +143,7 @@ def test_bin_config_is_validated(tmp_path, edges, message):
     data = yaml.safe_load(
         (Path(__file__).resolve().parents[1] / "configs" / "quality_rules.yml").read_text()
     )
-    data["defaults"]["drift"]["bins"] = {"trip_distance": edges}
+    data["defaults"]["drift"]["bins"] = {"yellow_taxi": {"trip_distance": edges}}
     path = tmp_path / "quality_rules.yml"
     path.write_text(yaml.safe_dump(data))
     with pytest.raises(ConfigError, match=message):

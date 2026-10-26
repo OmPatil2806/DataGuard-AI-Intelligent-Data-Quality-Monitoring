@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -11,6 +12,14 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_DIR = REPO_ROOT / "configs"
+CONFIG_DIR_ENV = "DATAGUARD_CONFIG_DIR"  # another folder of config files (Phase 9.4: tests)
+
+
+def config_dir() -> Path:
+    """The folder the config files are read from: configs/, or $DATAGUARD_CONFIG_DIR."""
+    override = os.environ.get(CONFIG_DIR_ENV)
+    return Path(override) if override else CONFIG_DIR
+
 
 PERIOD_PATTERN = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 SEVERITIES = ("critical", "high", "medium", "low")
@@ -36,8 +45,16 @@ class ConfigError(ValueError):
 @dataclass(frozen=True)
 class Lookup:
     name: str
-    url: str
-    file: str
+    url: str | None  # where download_data.py fetches it (None: it comes another way)
+    file: str  # the first (often only) file
+    # Phase 9.4: a lookup made of several files with the same columns (stacked by name), and
+    # columns renamed per file first, where the files name the same column differently
+    files: tuple[str, ...] = ()
+    rename: tuple[tuple[str, str], ...] = ()
+
+    @property
+    def paths(self) -> tuple[str, ...]:
+        return self.files or (self.file,)
 
 
 ARCHIVE_KINDS = ("7z", "xlsx", "csv")
@@ -286,14 +303,31 @@ def _parse_silver(raw: Any, where: str) -> dict[str, Any]:
 
 def _parse_dataset(name: str, raw: dict[str, Any]) -> Dataset:
     where = f"datasets.{name}"
-    lookups = tuple(
-        Lookup(
-            name=lookup_name,
-            url=_require(lookup, "url", f"{where}.lookups.{lookup_name}"),
-            file=_require(lookup, "file", f"{where}.lookups.{lookup_name}"),
+    lookups = []
+    for lookup_name, lookup in (raw.get("lookups") or {}).items():
+        at = f"{where}.lookups.{lookup_name}"
+        if not isinstance(lookup, dict):
+            raise ConfigError(f"{at} must be a mapping")
+        files = lookup.get("files")
+        if files is not None and not (
+            isinstance(files, list) and files and all(isinstance(f, str) for f in files)
+        ):
+            raise ConfigError(f"{at}.files must be a list of file names")
+        if files is None and "file" not in lookup:
+            raise ConfigError(f"missing required key 'file' in {at}")
+        rename = lookup.get("rename") or {}
+        if not isinstance(rename, dict):
+            raise ConfigError(f"{at}.rename must map column names to new names")
+        lookups.append(
+            Lookup(
+                name=lookup_name,
+                url=lookup.get("url"),
+                file=lookup.get("file") or files[0],
+                files=tuple(files or ()),
+                rename=tuple((str(a), str(b)) for a, b in rename.items()),
+            )
         )
-        for lookup_name, lookup in (raw.get("lookups") or {}).items()
-    )
+    lookups = tuple(lookups)
     archives = []
     for archive_name, raw_archive in (raw.get("archives") or {}).items():
         at = f"{where}.archives.{archive_name}"
@@ -387,7 +421,7 @@ def _parse_dataset(name: str, raw: dict[str, Any]) -> Dataset:
 
 
 def load_datasets_config(path: Path | None = None) -> DatasetsConfig:
-    path = Path(path) if path else CONFIG_DIR / "datasets.yml"
+    path = Path(path) if path else config_dir() / "datasets.yml"
     data = load_yaml(path)
 
     raw_paths = _require(data, "paths", path.name)
@@ -403,7 +437,7 @@ def load_datasets_config(path: Path | None = None) -> DatasetsConfig:
 
 
 def load_quality_rules(path: Path | None = None) -> dict[str, Any]:
-    path = Path(path) if path else CONFIG_DIR / "quality_rules.yml"
+    path = Path(path) if path else config_dir() / "quality_rules.yml"
     data = load_yaml(path)
     defaults = _require(data, "defaults", path.name)
     for section in ("baseline", "volume", "drift", "incidents"):
@@ -411,14 +445,19 @@ def load_quality_rules(path: Path | None = None) -> dict[str, Any]:
     drift = defaults["drift"]
     if not 0 < drift["psi_medium"] < drift["psi_high"]:
         raise ConfigError(f"{path.name}: drift thresholds need 0 < psi_medium < psi_high")
-    for column, edges in (drift.get("bins") or {}).items():
-        where = f"{path.name}: defaults.drift.bins.{column}"
-        if not isinstance(edges, list) or len(edges) < 2:
-            raise ConfigError(f"{where} needs a list of at least two bin edges")
-        if any(not isinstance(e, int | float) or isinstance(e, bool) for e in edges):
-            raise ConfigError(f"{where} must contain only numbers")
-        if any(b <= a for a, b in zip(edges, edges[1:], strict=False)):
-            raise ConfigError(f"{where} must be strictly increasing")
+    for dataset, columns in (drift.get("bins") or {}).items():
+        if not isinstance(columns, dict):
+            raise ConfigError(
+                f"{path.name}: defaults.drift.bins.{dataset} must map columns to bin edges"
+            )
+        for column, edges in columns.items():
+            where = f"{path.name}: defaults.drift.bins.{dataset}.{column}"
+            if not isinstance(edges, list) or len(edges) < 2:
+                raise ConfigError(f"{where} needs a list of at least two bin edges")
+            if any(not isinstance(e, int | float) or isinstance(e, bool) for e in edges):
+                raise ConfigError(f"{where} must contain only numbers")
+            if any(b <= a for a, b in zip(edges, edges[1:], strict=False)):
+                raise ConfigError(f"{where} must be strictly increasing")
     freshness = defaults.get("freshness") or {}
     if freshness.get("mode", "replay") not in ("replay", "live"):
         raise ConfigError(f"{path.name}: defaults.freshness.mode must be 'replay' or 'live'")
@@ -471,7 +510,7 @@ def load_quality_rules(path: Path | None = None) -> dict[str, Any]:
 
 
 def load_severity_weights(path: Path | None = None) -> dict[str, Any]:
-    path = Path(path) if path else CONFIG_DIR / "severity_weights.yml"
+    path = Path(path) if path else config_dir() / "severity_weights.yml"
     data = load_yaml(path)
 
     levels = _require(data, "severity_levels", path.name)
