@@ -25,6 +25,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
+
 if __package__ in (None, ""):
     # Allow running this file directly: make src/ importable.
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -57,6 +59,7 @@ FACTS = {
     "where_share": "its share of the affected rows",
     "few_affected": "too few affected rows to show a concentration",
     "low_days": "days far below the month's median day (volume incidents)",
+    "low_days_share_of_drop": "share of the month's missing rows that the low days lack",
     "late_days": "days the file arrived late (freshness incidents)",
     "shared_file": "one file version (SHA-256) is registered for more than one month",
     "same_month": "rule ids of the other incidents of the same month",
@@ -225,6 +228,26 @@ def _ratio(series: list[dict[str, Any]], period: str) -> float | None:
     return round(now[0] / usual, 4)
 
 
+def _low_days_share(evidence: dict[str, Any], where: dict[str, Any], period: str) -> float | None:
+    """How much of a month's missing rows the low days account for: the rows the low days lack
+    against the month's median day, over the rows the month lacks against its baseline. Near 1:
+    the rows are missing on those days; near 0: the low days are ordinary (a holiday) and the
+    rows are missing elsewhere (Phase 9.6, found on VED: 19 February 2018 is Presidents' Day)."""
+    if not where.get("analysed") or not where.get("days") or not where.get("median_rows_per_day"):
+        return None
+    series = (evidence.get("metrics") or {}).get("rows_per_day") or []
+    now = [s["value"] for s in series if s["period"] == period]
+    earlier = [s["value"] for s in series if s["period"] < period]
+    if not now or not earlier:
+        return None
+    days_in_month = pd.Period(period, freq="M").days_in_month
+    drop = (statistics.median(earlier) - now[0]) * days_in_month
+    if drop <= 0:
+        return None
+    deficit = sum(where["median_rows_per_day"] - d["rows"] for d in where["days"])
+    return round(min(1.0, deficit / drop), 4)
+
+
 def facts(evidence: dict[str, Any]) -> dict[str, Any]:
     """The flat facts the playbooks test, from one evidence pack."""
     inc = evidence["incident"]
@@ -260,6 +283,7 @@ def facts(evidence: dict[str, Any]) -> dict[str, Any]:
         }
     if inc["rule_id"] == "volume":
         f["low_days"] = len(where.get("days") or []) if where.get("analysed") else None
+        f["low_days_share_of_drop"] = _low_days_share(evidence, where, period)
     if inc["rule_id"] == "freshness":
         late = re.search(r"([0-9.]+) day\(s\) late", f["detail"])
         f["late_days"] = float(late.group(1)) if late else None

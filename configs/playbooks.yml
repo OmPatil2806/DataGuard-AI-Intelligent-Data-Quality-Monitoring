@@ -77,9 +77,11 @@ playbooks:
       - id: missing_days
         text: "Rows are missing on {low_days} day(s) of the month: a partial delivery"
         prior: 0.3
-        requires: [{fact: low_days, gt: 0}, {fact: rows_per_day_ratio, lt: 1}]
+        # the low days must account for most of the drop: a holiday is low in every year
+        requires: [{fact: low_days, gt: 0}, {fact: rows_per_day_ratio, lt: 1},
+                   {fact: low_days_share_of_drop, gt: 0.5}]
         signals:
-          - {fact: low_days, gt: 0, weight: 0.4, say: "{low_days} day(s) far below the median day"}
+          - {fact: low_days, gt: 0, weight: 0.4, say: "{low_days} day(s) far below the median day, {low_days_share_of_drop:.0%} of the missing rows"}
         actions: [inspect_days, redownload, contact_provider]
       - id: rows_missing_evenly
         text: "Rows are missing evenly across the month ({rows_per_day_ratio:.0%} of the usual rows): a filtered or incomplete extract"
@@ -87,6 +89,7 @@ playbooks:
         requires: [{fact: rows_per_day_ratio, lt: 1}, {fact: detail, contains: "drop"}]
         signals:
           - {fact: low_days, is: 0, weight: 0.3, say: "no single day is far below the others"}
+          - {fact: low_days_share_of_drop, lt: 0.2, weight: 0.3, say: "the low days account for only {low_days_share_of_drop:.0%} of the missing rows"}
         actions: [redownload, contact_provider]
       - id: rows_added
         text: "The month has more rows than usual ({rows_per_day_ratio:.0%}): duplicated delivery or real growth"
@@ -153,6 +156,17 @@ playbooks:
           - {fact: median_ratio, between: [1.45, 1.75], weight: 0.4, say: "the median grew by about 1.6, the factor from miles to kilometres"}
           - {fact: p99_ratio, between: [1.2, 1.75], weight: 0.2, say: "the longest trips grew too (p99 ×{p99_ratio:.2f})"}
         actions: [inspect_samples, contact_provider]
+      # any dataset (Phase 9.6): the median moved by a factor between two common units
+      - id: unit_conversion
+        text: "{column} looks converted to another unit (median ×{median_ratio:.2f})"
+        prior: 0.1
+        requires: [{fact: median_ratio, exists: true}]
+        signals:
+          - {fact: median_ratio, between: [0.58, 0.66], weight: 0.5, say: "the median fell to about 0.62: km/h read as mph, or kilometres as miles"}
+          - {fact: median_ratio, between: [1.5, 1.7], weight: 0.5, say: "the median grew by about 1.6: mph read as km/h, or miles as kilometres"}
+          - {fact: median_ratio, between: [0.26, 0.3], weight: 0.5, say: "the median fell to about 0.28: km/h read as m/s"}
+          - {fact: median_ratio, between: [3.4, 3.8], weight: 0.5, say: "the median grew by about 3.6: m/s read as km/h"}
+        actions: [inspect_samples, contact_provider]
       - id: nulls_shift_distribution
         text: "The distribution of {column} moved because many values are empty"
         prior: 0.3
@@ -177,7 +191,7 @@ playbooks:
         actions: [accept_change]
 
   - id: duplicates
-    match: {rule_id: [trip_unique]}
+    match: {rule_id: [trip_unique, reading_unique]}
     causes:
       - id: duplicate_delivery
         text: "Trips are delivered twice ({affected_share:.1%} of the rows)"
@@ -222,7 +236,7 @@ playbooks:
     match: {category: [referential]}
     causes:
       - id: unknown_location
-        text: "Trips point to zones that are not in the zone lookup ({affected_share:.1%} of the rows)"
+        text: "Rows point to keys that are not in the lookup ({affected_share:.1%} of the rows, {rule_id})"
         prior: 0.5
         requires: []
         signals:

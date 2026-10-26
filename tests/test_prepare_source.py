@@ -130,7 +130,8 @@ def test_ingest_prepares_then_loads(incoming, tmp_path):
             "SELECT files_loaded, files_skipped FROM pipeline_runs ORDER BY run_id DESC LIMIT 1"
         ).fetchone()
     assert last == (0, 2)
-    assert ingest_data.main([*argv[:4], "--source", str(tmp_path / "none"), *argv[6:]]) == 2
+    # nothing to prepare there and no month files: every month missing (as for taxi files)
+    assert ingest_data.main([*argv[:4], "--source", str(tmp_path / "none"), *argv[6:]]) == 1
 
 
 def test_source_block_is_validated(tmp_path):

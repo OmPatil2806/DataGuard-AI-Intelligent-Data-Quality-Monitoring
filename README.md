@@ -9,14 +9,13 @@ freshness, volume, drift) raise incidents, and **Gold** monitoring tables feed a
 Version 1 runs on real NYC TLC Yellow Taxi data with deliberately injected faults, so detection
 quality is measured instead of assumed.
 
-**Status:** Phase 8 complete (the investigation engine: for every incident an evidence pack,
-where and when, a template explanation with its evidence, actions pending approval and a
-report, measured against the injected faults in [docs/investigation.md](docs/investigation.md)).
-Pending a run on the full data: the total-amount rule (open item O1), the measured rule
-results, the drift and score calibrations (notebooks 03 and 04), the detection evaluation
-(notebook 05), the anomaly model (notebook 06) and the investigation (notebook 07). In
-progress: Phase 9, a second dataset, the Vehicle Energy Dataset (9.1 to 9.5 done: VED is
-monitored with configuration only, [docs/ved_profile.md](docs/ved_profile.md)).
+**Status:** Phase 9 complete (a second dataset, the Vehicle Energy Dataset, monitored with
+configuration only: 22 million real readings in 84 seconds, fault experiments with the right
+cause first in 18 of 18 detected: [docs/ved.md](docs/ved.md)). Phase 8, the investigation
+engine, is in [docs/investigation.md](docs/investigation.md). Pending a run on the full taxi
+data: the total-amount rule (open item O1), the measured rule results, the drift and score
+calibrations (notebooks 03 and 04), the detection evaluation (notebook 05), the anomaly model
+(notebook 06) and the investigation (notebook 07). Next: Phase 10, the dashboard and alerts.
 
 ## Setup
 
@@ -322,6 +321,11 @@ rebuild of 22 million rows takes 84 seconds and finds a real change: from April 
 petrol cars a month stop sending fuel trims. Findings and the decisions they lead
 to: [docs/ved_profile.md](docs/ved_profile.md); charts in `notebooks/08_ved_profiling.ipynb`.
 
+The fault experiments run on VED too (`--config configs/faults_ved.yml`): 18 of 24 caught, the
+control month clean, the right cause first in all 18, and a car that stops sending its battery
+charge named by the investigation. Results, misses and the side-by-side with the taxis:
+[docs/ved.md](docs/ved.md); `notebooks/09_ved_monitoring.ipynb`.
+
 ## Adding a dataset
 
 A new dataset needs configuration only: its files, standard schema, lookups and Silver columns
@@ -343,7 +347,7 @@ distributions per file. The findings on the full 2019-01 and 2023 data are in
 configs/      dataset list, quality rules, severity weights (YAML)
 data/         raw and processed data, DuckDB file (ignored by Git)
 docs/         design notes and data profiling findings
-notebooks/    profiling, rule experiments, baselines, calibration, evaluation, ML, investigation
+notebooks/    profiling, rule experiments, baselines, calibration, evaluation, ML, investigation, VED
 src/          pipeline code, one package per stage
 tests/        pytest suite
 ```

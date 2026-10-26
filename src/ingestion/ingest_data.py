@@ -149,7 +149,13 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     source_dir = args.source or config.paths["incoming"]
-    if dataset.source is not None:
+    if dataset.source is not None and not any(
+        (source_dir / dataset.name).glob(dataset.source.files)
+    ):
+        # month files delivered as they are (e.g. a fault experiment's): nothing to prepare
+        log.info("no %s in %s: registering the month files as they are",
+                 dataset.source.files, source_dir / dataset.name)  # fmt: skip
+    elif dataset.source is not None:
         try:
             prepared = prepare_source.prepare(dataset, source_dir, months, force=args.force)
         except (ConfigError, prepare_source.PrepareError) as exc:

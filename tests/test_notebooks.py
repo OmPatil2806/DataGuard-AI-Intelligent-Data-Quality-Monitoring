@@ -246,3 +246,53 @@ def test_ved_profiling_notebook_runs(tmp_path, monkeypatch):
     text = "".join(str(o.get("text", "")) + str(o.get("data", {})) for o in outputs)
     assert "3 weekly file(s), 1,880 rows" in text and '"rows_lost_by_reader": 0' in text
     assert '"negative_ms_rows": 5' in text and '"ICE": 2' in text
+
+
+def test_ved_monitoring_notebook_runs(tmp_path, monkeypatch):
+    """VED's fixture through the pipeline with the real configs, and two experiments on it."""
+    import shutil
+
+    import yaml
+    from ved_fixture import make_unpacked
+
+    from common.config import load_datasets_config
+    from evaluation import fault_injector as fi
+    from evaluation import run_experiments
+    from gold import rebuild
+    from ingestion import ingest_data, prepare_source
+
+    incoming = tmp_path / "incoming"
+    make_unpacked(incoming / "ved_signals")
+    database = str(tmp_path / "dataguard.duckdb")
+    common = ["--dataset", "ved_signals", "--database", database]
+    bronze = ["--source", str(incoming), "--bronze", str(tmp_path / "bronze")]
+    assert ingest_data.main([*common, "--months", "2017-11:2017-12", *bronze]) == 0
+    folders = ["--silver", str(tmp_path / "silver"), "--quarantine", str(tmp_path / "quarantine")]
+    assert rebuild.main([*common, "--lookups", str(incoming), *folders]) == 0
+
+    source = tmp_path / "experiment_source"  # the month files and lookups, no weekly CSVs
+    prepare_source.prepare(load_datasets_config().dataset("ved_signals"), incoming)
+    shutil.copytree(incoming, source, ignore=shutil.ignore_patterns("VED_*", "staged"))
+    data = yaml.safe_load((REPO_ROOT / "configs" / "faults_ved.yml").read_text())
+    data |= {"target_month": "2017-12", "history": {"start": "2017-11", "end": "2017-11"},
+             "sample_fraction": 1.0, "workspace": str(tmp_path / "workspace")}  # fmt: skip
+    (tmp_path / "faults_ved.yml").write_text(yaml.safe_dump(data))
+    config = fi.load_faults_config(tmp_path / "faults_ved.yml")
+    run_experiments.run_all(config, source, ["control", "duplicate_rows-20pct"], out=print)
+
+    monkeypatch.setenv("DATAGUARD_DATABASE", database)
+    monkeypatch.setenv("DATAGUARD_FAULTS_CONFIG", str(tmp_path / "faults_ved.yml"))
+    path = REPO_ROOT / "notebooks" / "09_ved_monitoring.ipynb"
+    notebook = nbformat.read(path, as_version=4)
+    client = NotebookClient(
+        notebook, timeout=300, kernel_name="python3", resources={"metadata": {"path": REPO_ROOT}}
+    )
+    client.execute()
+    outputs = [o for cell in notebook.cells if cell.cell_type == "code" for o in cell.outputs]
+    assert not [o for o in outputs if o.output_type == "error"]
+    text = "".join(str(o.get("text", "")) + str(o.get("data", {})) for o in outputs)
+    assert (
+        '"months": 2' in text
+        and '"rules_quarantining": [\n    "trip_time_not_negative"\n  ]' in text
+    )
+    assert '"detection": {\n    "caught": 1\n  }' in text and '"top1": 1' in text

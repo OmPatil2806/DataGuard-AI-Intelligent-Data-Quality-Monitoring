@@ -130,11 +130,11 @@ def test_null_spike_in_one_vendor_names_the_vendor():
 
 
 def test_volume_and_freshness():
-    days = [{"day": "2023-06-10"}, {"day": "2023-06-11"}]
-    rows = {"rows_per_day": series(100, 100, 100, 90)}
-    gaps = ex.explain(
-        evidence("volume", detail="volume drop: -10%", days=days, metrics=rows), BOOKS
-    )
+    days = [{"day": "2023-06-10", "rows": 0}, {"day": "2023-06-11", "rows": 0}]
+    rows = {"rows_per_day": series(100, 100, 100, 90)}  # 300 rows missing in June
+    gaps_pack = evidence("volume", detail="volume drop: -10%", days=days, metrics=rows)
+    gaps_pack["concentration"]["median_rows_per_day"] = 100  # the two days lack 200 of them
+    gaps = ex.explain(gaps_pack, BOOKS)
     assert top(gaps) == "missing_days" and "2 day(s)" in gaps["causes"][0]["text"]
     half = {"rows_per_day": series(100, 100, 100, 50)}
     even = ex.explain(evidence("volume", detail="volume drop: -50%", days=[], metrics=half), BOOKS)
@@ -239,3 +239,17 @@ def test_every_playbook_and_cause_is_documented():
         assert f"| `{book.id}` |" in doc, book.id
         for cause in book.causes:
             assert f"`{cause.id}`" in doc, cause.id
+
+
+def test_low_days_must_explain_the_drop():
+    """A holiday is a low day in every year: it is not where the missing rows went."""
+    rows = {"rows_per_day": series(1000, 1000, 1000, 500)}  # 15,000 rows missing in June
+    holiday = [{"day": "2023-06-19", "rows": 400}]  # 600 short of the median day
+    e = evidence("volume", detail="volume drop: -50%", days=holiday, metrics=rows)
+    e["concentration"]["median_rows_per_day"] = 1000
+    assert ex.facts(e)["low_days_share_of_drop"] == 0.04
+    assert top(ex.explain(e, BOOKS)) == "rows_missing_evenly"
+    week = [{"day": f"2023-06-{d:02d}", "rows": 0} for d in range(1, 16)]  # half a month empty
+    e["concentration"]["days"] = week
+    assert ex.facts(e)["low_days_share_of_drop"] == 1.0
+    assert top(ex.explain(e, BOOKS)) == "missing_days"

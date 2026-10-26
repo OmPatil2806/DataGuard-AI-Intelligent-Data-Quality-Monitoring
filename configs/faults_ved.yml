@@ -1,0 +1,92 @@
+# Fault injection on the Vehicle Energy Dataset (Phase 9.6), the same experiments as
+# configs/faults.yml on the second dataset:
+#
+#     python src/evaluation/run_experiments.py --config configs/faults_ved.yml
+#     python src/evaluation/evaluate.py --config configs/faults_ved.yml
+#     python src/evaluation/explanation_accuracy.py --config configs/faults_ved.yml
+#
+# The faults change the month files that ingest_data.py prepares (one per month, the source's
+# columns), so the params name the source columns. Faults that need the taxis' columns (pickup
+# and dropoff times, fares) and the late file (VED has no delivery schedule) are not used.
+# See configs/faults.yml for the keys.
+
+dataset: ved_signals
+target_month: "2018-02"
+history: {start: "2017-11", end: "2018-01"}   # three months: a trusted baseline for the target
+sample_fraction: 0.1
+seed: 42
+workspace: data/evaluation_ved
+
+strengths:
+  share: [0.01, 0.05, 0.20]
+  days: [1, 5, 20]
+
+faults:
+  missing_column:
+    category: schema
+    kind: none
+    description: "The battery charge column is not delivered"
+    params: {column: "HV Battery SOC[%]"}
+    expect: [{check: schema}]
+    explain: {causes: [column_missing]}
+
+  null_spike:
+    category: completeness
+    kind: share
+    description: "Engine RPM is empty in a share of the rows that had it"
+    params: {column: "Engine RPM[RPM]"}
+    expect: [{check: null_rate, column: engine_rpm}]
+    explain: {causes: [source_nulls], where: none}
+
+  # One plug-in hybrid stops sending its battery charge. Petrol and hybrid cars never send it,
+  # so the column is 83% empty anyway and the NULL-rate check cannot see one car; the rule per
+  # engine type (battery_signals_present_ev) can, and the investigation must name the car.
+  null_spike_vendor:
+    category: completeness
+    kind: share
+    description: "Vehicle 560 (a PHEV, 3.4% of the rows) sends no battery charge in a share of its rows"
+    params: {column: "HV Battery SOC[%]", segment_column: VehId, segment_value: 560}
+    expect: [{rule: battery_signals_present_ev}]
+    explain: {causes: [rule_failures_up], where: {dimension: vehicle, value: "560"}}
+
+  duplicate_rows:
+    category: uniqueness
+    kind: share
+    description: "A share of readings is delivered twice"
+    params: {}
+    expect: [{rule: reading_unique}]
+    explain: {causes: [duplicate_delivery], where: none}
+
+  out_of_range:
+    category: validity
+    kind: share
+    description: "Speed is negative in a share of the moving readings"
+    params: {column: "Vehicle Speed[km/h]"}
+    expect: [{rule: speed_in_range}]
+    explain: {causes: [out_of_range_values], where: none}
+
+  orphan_location:
+    category: referential
+    kind: share
+    description: "A share of readings belongs to a vehicle that is not in the static data"
+    params: {column: VehId, value: 9999}
+    expect: [{rule: vehicle_known}]
+    explain: {causes: [unknown_location]}
+
+  unit_change:
+    category: drift
+    kind: share
+    extra_strengths: [1.0]
+    description: "Speed delivered in mph instead of km/h for a share of the readings"
+    params: {column: "Vehicle Speed[km/h]", factor: 0.621371}
+    expect: [{check: drift, column: speed_kmh}]
+    explain: {causes: [unit_conversion, unit_change]}
+
+  volume_drop:
+    category: volume
+    kind: share
+    extra_strengths: [0.5]
+    description: "A share of the month's readings is missing"
+    params: {}
+    expect: [{check: volume}]
+    explain: {causes: [rows_missing_evenly]}

@@ -122,7 +122,7 @@ of the signals that supported it.
 | `volume` | volume check | `cold_start_limits`, `missing_days`, `rows_missing_evenly`, `rows_added` |
 | `freshness` | freshness check | `late_delivery` |
 | `null_rate` | NULL-rate check | `column_missing_upstream`, `segment_sends_nulls`, `nulls_in_period`, `source_nulls` |
-| `drift` | drift check | `unit_change`, `nulls_shift_distribution`, `scale_error`, `real_change` |
+| `drift` | drift check | `unit_change`, `unit_conversion`, `nulls_shift_distribution`, `scale_error`, `real_change` |
 | `duplicates` | rule `trip_unique` | `duplicate_delivery` |
 | `outside_month` | rule `pickup_in_file_month` | `wrong_file`, `trips_from_other_months` |
 | `swapped_times` | rule `dropoff_not_before_pickup` | `times_swapped` |

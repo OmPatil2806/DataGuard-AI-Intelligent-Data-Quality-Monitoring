@@ -55,7 +55,7 @@ from incidents import incidents_cli  # noqa: E402
 from ingestion import ingest_data  # noqa: E402
 from ml import score as ml_score  # noqa: E402
 from ml import train as ml_train  # noqa: E402
-from ml.features import MODELS_DIR_ENV  # noqa: E402
+from ml.features import MODELS_DIR_ENV, load_ml_config  # noqa: E402
 from quality import score as quality_score  # noqa: E402
 
 DATABASE = "dataguard.duckdb"
@@ -95,7 +95,12 @@ def source_files(config: fi.FaultsConfig, source: Path) -> dict[str, Path]:
     """Month (or lookup name) -> source file; raises when one is missing."""
     dataset = load_datasets_config().dataset(config.dataset)
     files = {m: source / dataset.file_for(m) for m in (*config.history, config.target_month)}
-    files |= {f"lookup:{lookup.name}": source / lookup.file for lookup in dataset.lookups}
+    # lookup files keep their path below the source folder (e.g. ved_signals/static_ice_hev.csv)
+    files |= {
+        f"lookup:{lookup.name}:{name}": source / name
+        for lookup in dataset.lookups
+        for name in lookup.paths
+    }
     missing = [str(p) for p in files.values() if not p.is_file()]
     if missing:
         raise ExperimentError("missing source file(s): " + ", ".join(missing))
@@ -208,7 +213,9 @@ def build_history(
     incoming.mkdir(parents=True)
     for key, path in files.items():
         if key.startswith("lookup:"):
-            shutil.copy(path, incoming / path.name)
+            target = incoming / key.split(":", 2)[2]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(path, target)
         elif key != config.target_month:
             fi.inject(config, fi.CONTROL, None, path, incoming, period=key)
     record = ExperimentRecord("history", fi.CONTROL, None)
@@ -216,7 +223,8 @@ def build_history(
     with _models(folder):
         _ingest(config.dataset, folder, incoming, months, record)
         _rebuild(config.dataset, folder, incoming, None, record)
-        _train(folder, record)
+        if load_ml_config().dataset == config.dataset:  # the model is for one dataset only
+            _train(folder, record)
     record.write(folder)
     if not record.ran:
         raise ExperimentError(f"history did not build: {record.stages}")
