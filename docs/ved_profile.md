@@ -119,6 +119,32 @@ On the real files:
 
 The taxi files have no `source` block and take the same path as before.
 
+## Standardization (Step 9.3)
+
+The standard schema in `datasets.yml` (`ved_signals.columns`) gives every source column a
+snake_case name with its unit, mapped from the source name (V4):
+
+```yaml
+speed_kmh: {type: DOUBLE, source: "Vehicle Speed[km/h]"}
+outside_temp_c: {type: DOUBLE, source: ["OAT[DegC]", "Outside Air Temperature[DegC]"]}
+row_time: {type: TIMESTAMP, sql: "TIMESTAMP '2017-11-01' + ... day_num ... trip_ms ..."}
+```
+
+- **`source`**: the name (or names, first found wins) of the column in the source file. The
+  schema check (Phase 3) compares a month's file with these names, so a file using the README's
+  longer name for the temperature is not a missing column.
+- **`sql`**: a computed column, made from the other standard columns right after they are
+  renamed and cast, so the rules see it like any other column. VED's `row_time` (V5) is the
+  dataset's `timestamp_column`.
+- `origin_file` and `origin_line` (Step 9.2) pass through to Silver and Quarantine with the
+  Bronze lineage columns.
+- **Freshness**: VED has no `expected_lag_days`, so no expected arrival: the freshness check
+  reports `skipped`, never a late file.
+
+On the real February 2018 file: 22 columns renamed, 5 cast (ids to INTEGER, RPM and powers to
+DOUBLE) without a value lost, `row_time` computed for all 1,519,330 rows, every one inside
+February, and the schema check finds no change.
+
 ## Known limits
 
 - Profiled once, on the files as downloaded in Phase 9.1 (their SHA-256 is in

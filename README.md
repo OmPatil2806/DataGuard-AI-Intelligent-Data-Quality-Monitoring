@@ -15,7 +15,7 @@ report, measured against the injected faults in [docs/investigation.md](docs/inv
 Pending a run on the full data: the total-amount rule (open item O1), the measured rule
 results, the drift and score calibrations (notebooks 03 and 04), the detection evaluation
 (notebook 05), the anomaly model (notebook 06) and the investigation (notebook 07). In
-progress: Phase 9, a second dataset, the Vehicle Energy Dataset (9.1 profile and 9.2 ingestion done:
+progress: Phase 9, a second dataset, the Vehicle Energy Dataset (9.1 profile, 9.2 ingestion and 9.3 standardization done:
 [docs/ved_profile.md](docs/ved_profile.md)).
 
 ## Setup
@@ -313,7 +313,9 @@ against its lines: the files mix line endings, and DuckDB's CSV reader then skip
 32 MB of each file without an error (53.5% of the rows). A dataset like this has a `source`
 block in `datasets.yml`: `ingest_data.py` first regroups its rows into one Parquet file per month
 (`src/ingestion/prepare_source.py`, every row traced to its source line by `origin_file` and
-`origin_line`), then registers and loads them as usual. Findings and the decisions they lead
+`origin_line`), then registers and loads them as usual. Its standard schema maps the source
+names (`Vehicle Speed[km/h]` -> `speed_kmh`) and computes the row time from the trip's start
+day and milliseconds (`row_time`, a column with `sql:`), before any rule runs. Findings and the decisions they lead
 to: [docs/ved_profile.md](docs/ved_profile.md); charts in `notebooks/08_ved_profiling.ipynb`.
 
 ## Profile the data

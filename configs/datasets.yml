@@ -99,6 +99,40 @@ datasets:
       period_sql: >-
         strftime(TIMESTAMP '2017-11-01' + to_microseconds(CAST(round((DayNum - 1) * 86400e6
         + "Timestamp(ms)" * 1000) AS BIGINT)), '%Y-%m')
+    # The row time is computed (V5), not delivered: no freshness either, as VED is a closed,
+    # historical dataset without a delivery schedule (no expected_lag_days: the check skips).
+    timestamp_column: row_time
+    # Standard schema (Phase 9.3): snake_case names with the unit, mapped from the source
+    # names, which carry units in brackets (V4). OAT also accepts the README's longer name.
+    columns:
+      day_num: {type: DOUBLE, source: DayNum}
+      vehicle_id: {type: INTEGER, source: VehId}
+      trip_id: {type: INTEGER, source: Trip}
+      trip_ms: {type: BIGINT, source: "Timestamp(ms)"}
+      latitude: {type: DOUBLE, source: "Latitude[deg]"}
+      longitude: {type: DOUBLE, source: "Longitude[deg]"}
+      speed_kmh: {type: DOUBLE, source: "Vehicle Speed[km/h]"}
+      maf_g_s: {type: DOUBLE, source: "MAF[g/sec]"}
+      engine_rpm: {type: DOUBLE, source: "Engine RPM[RPM]"}
+      absolute_load_pct: {type: DOUBLE, source: "Absolute Load[%]"}
+      outside_temp_c: {type: DOUBLE, source: ["OAT[DegC]", "Outside Air Temperature[DegC]"]}
+      fuel_rate_l_h: {type: DOUBLE, source: "Fuel Rate[L/hr]"}
+      ac_power_kw: {type: DOUBLE, source: "Air Conditioning Power[kW]"}
+      ac_power_w: {type: DOUBLE, source: "Air Conditioning Power[Watts]"}
+      heater_power_w: {type: DOUBLE, source: "Heater Power[Watts]"}
+      battery_current_a: {type: DOUBLE, source: "HV Battery Current[A]"}
+      battery_soc_pct: {type: DOUBLE, source: "HV Battery SOC[%]"}
+      battery_voltage_v: {type: DOUBLE, source: "HV Battery Voltage[V]"}
+      stft_bank1_pct: {type: DOUBLE, source: "Short Term Fuel Trim Bank 1[%]"}
+      stft_bank2_pct: {type: DOUBLE, source: "Short Term Fuel Trim Bank 2[%]"}
+      ltft_bank1_pct: {type: DOUBLE, source: "Long Term Fuel Trim Bank 1[%]"}
+      ltft_bank2_pct: {type: DOUBLE, source: "Long Term Fuel Trim Bank 2[%]"}
+      # the trip's start (DayNum, 1.0 = 2017-11-01 00:00) plus the time since it started
+      row_time:
+        type: TIMESTAMP
+        sql: >-
+          TIMESTAMP '2017-11-01' + to_microseconds(CAST(round((day_num - 1) * 86400e6
+          + trip_ms * 1000) AS BIGINT))
     # python src/data_download/fetch_archives.py --dataset ved_signals
     # unpacks into <paths.incoming>/ved_signals/: VED_yymmdd_week.csv and the static data as CSV
     archives:

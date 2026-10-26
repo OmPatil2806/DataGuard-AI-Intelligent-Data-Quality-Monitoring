@@ -35,6 +35,10 @@ from ingestion import manifest
 from ingestion.manifest import ManifestEntry
 
 LINEAGE_COLUMNS = ("bronze_row_id", "source_file", "ingestion_timestamp", "pipeline_run_id")
+# Lineage a prepared source brings with it (ingestion/prepare_source.py): the original file
+# and line of every row. Not part of the standard schema; passed through like the above.
+ORIGIN_COLUMNS = ("origin_file", "origin_line")
+PASS_THROUGH = LINEAGE_COLUMNS + ORIGIN_COLUMNS
 PART_FILE = "part-0.parquet"
 
 

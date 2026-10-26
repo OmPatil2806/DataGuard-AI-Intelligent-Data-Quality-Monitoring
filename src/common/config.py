@@ -88,12 +88,31 @@ class Dataset:
     timestamp_column: str | None = None
     expected_lag_days: int | None = None
     columns: tuple[tuple[str, str], ...] = ()  # standard schema: (name, DuckDB type)
+    # Phase 9.3: source names of columns whose source name differs, and computed columns
+    column_sources: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    computed: tuple[tuple[str, str], ...] = ()  # (column, SQL over the other standard columns)
     silver_derived: tuple[tuple[str, str], ...] = ()  # (column, SQL expression)
     silver_joins: tuple[SilverJoin, ...] = ()
     periods: tuple[str, ...] = ()
     lookups: tuple[Lookup, ...] = ()
     archives: tuple[Archive, ...] = ()
     source: Source | None = None
+
+    def source_names(self, column: str) -> tuple[str, ...]:
+        """The names a standard column may have in a source file, in order of preference."""
+        return dict(self.column_sources).get(column, (column,))
+
+    @property
+    def computed_names(self) -> set[str]:
+        return {name for name, _ in self.computed}
+
+    def raw_columns(self) -> list[tuple[str, tuple[str, ...]]]:
+        """(standard column, accepted source names) for every column read from the source."""
+        return [
+            (name, self.source_names(name))
+            for name, _ in self.columns
+            if name not in self.computed_names
+        ]
 
     def url_for(self, period: str) -> str:
         if not self.url_template:
@@ -179,24 +198,64 @@ def _parse_lag(value: Any, where: str) -> int | None:
 COLUMN_TYPES = ("BOOLEAN", "INTEGER", "BIGINT", "DOUBLE", "VARCHAR", "DATE", "TIMESTAMP")
 
 
-def _parse_columns(raw: Any, where: str) -> tuple[tuple[str, str], ...]:
+def _parse_columns(
+    raw: Any, where: str
+) -> tuple[
+    tuple[tuple[str, str], ...],
+    tuple[tuple[str, tuple[str, ...]], ...],
+    tuple[tuple[str, str], ...],
+]:
+    """The standard schema: (name, type) per column, the source names of renamed columns, and
+    the SQL of computed columns.
+
+        VendorID: INTEGER                                    source column of the same name
+        speed_kmh: {type: DOUBLE, source: "Vehicle Speed[km/h]"}         or a list of names
+        row_time: {type: TIMESTAMP, sql: "..."}              computed from the other columns
+    """
     if raw is None:
-        return ()
+        return (), (), ()
     if not isinstance(raw, dict) or not raw:
         raise ConfigError(f"{where} must map column names to types")
-    columns = []
+    columns, sources, computed = [], [], []
     seen: set[str] = set()
-    for name, dtype in raw.items():
-        dtype = str(dtype).upper()
+    for name, spec in raw.items():
+        at = f"{where}.{name}"
+        if isinstance(spec, dict):
+            unknown = set(spec) - {"type", "source", "sql"}
+            if unknown:
+                raise ConfigError(f"{at}: unknown key(s) {', '.join(sorted(unknown))}")
+            if "source" in spec and "sql" in spec:
+                raise ConfigError(f"{at}: a column has a source or a sql, not both")
+            dtype = str(_require(spec, "type", at)).upper()
+            if "source" in spec:
+                names = spec["source"] if isinstance(spec["source"], list) else [spec["source"]]
+                if not names or not all(isinstance(n, str) and n for n in names):
+                    raise ConfigError(f"{at}.source must be a column name or a list of them")
+                sources.append((str(name), tuple(names)))
+            if "sql" in spec:
+                if not isinstance(spec["sql"], str) or not spec["sql"].strip():
+                    raise ConfigError(f"{at}.sql must be an SQL expression")
+                computed.append((str(name), spec["sql"]))
+        else:
+            dtype = str(spec).upper()
         if dtype not in COLUMN_TYPES:
-            raise ConfigError(
-                f"{where}.{name}: unknown type '{dtype}' (use {', '.join(COLUMN_TYPES)})"
-            )
+            raise ConfigError(f"{at}: unknown type '{dtype}' (use {', '.join(COLUMN_TYPES)})")
         if name.lower() in seen:
             raise ConfigError(f"{where}: column '{name}' is listed twice (names ignore case)")
         seen.add(name.lower())
         columns.append((str(name), dtype))
-    return tuple(columns)
+    accepted: dict[str, str] = {}
+    for name, _ in columns:
+        if name in dict(computed):
+            continue
+        for source in dict(sources).get(name, (name,)):
+            if source.lower() in accepted:
+                raise ConfigError(
+                    f"{where}: source column '{source}' is claimed by {accepted[source.lower()]}"
+                    f" and {name}"
+                )
+            accepted[source.lower()] = name
+    return tuple(columns), tuple(sources), tuple(computed)
 
 
 def _parse_silver(raw: Any, where: str) -> dict[str, Any]:
@@ -285,7 +344,13 @@ def _parse_dataset(name: str, raw: dict[str, Any]) -> Dataset:
         lookups=lookups,
         archives=tuple(archives),
         source=source,
-        columns=_parse_columns(raw.get("columns"), f"{where}.columns"),
+        **dict(
+            zip(
+                ("columns", "column_sources", "computed"),
+                _parse_columns(raw.get("columns"), f"{where}.columns"),
+                strict=True,
+            )
+        ),
         **_parse_silver(raw.get("silver"), f"{where}.silver"),
     )
     standard = {c for c, _ in dataset.columns}
@@ -314,6 +379,10 @@ def _parse_dataset(name: str, raw: dict[str, Any]) -> Dataset:
                 raise ConfigError(f"missing required key '{key}' in {where} (dataset is enabled)")
         if not dataset.periods:
             raise ConfigError(f"missing required key 'periods' in {where} (dataset is enabled)")
+    if dataset.timestamp_column and standard and dataset.timestamp_column not in standard:
+        raise ConfigError(
+            f"{where}: timestamp_column '{dataset.timestamp_column}' is not a standard column"
+        )
     return dataset
 
 

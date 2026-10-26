@@ -130,9 +130,11 @@ def test_names_differing_only_by_case_are_refused(taxi):
 
 
 def test_dataset_without_schema(taxi):
-    ved = load_datasets_config().dataset("ved_signals")
+    import dataclasses
+
+    without = dataclasses.replace(taxi, columns=())
     with pytest.raises(StandardizeError, match="no standard schema"):
-        plan({"a": "INTEGER"}, ved)
+        plan({"a": "INTEGER"}, without)
 
 
 def test_config_rejects_bad_column_types(tmp_path):

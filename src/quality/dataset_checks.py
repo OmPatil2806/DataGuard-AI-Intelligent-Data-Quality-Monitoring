@@ -106,12 +106,14 @@ def schema_changes(
         removed      a non-standard column of last month is gone          medium
         added        a standard column that last month did not have       low
     """
-    standard = {name.lower(): name for name, _ in dataset.columns}
+    # every source name a standard column may have (computed columns are not in the source)
+    standard = {source.lower(): source for _, names in dataset.raw_columns() for source in names}
     now = {name.lower(): (name, dtype) for name, dtype in current}
     changes: list[Change] = []
 
-    for key, name in standard.items():
-        if key not in now:
+    for _, names in dataset.raw_columns():
+        if not any(n.lower() in now for n in names):
+            name = names[0]
             changes.append(
                 Change("missing", name, "critical", f"required column {name} is missing")
             )
@@ -160,7 +162,7 @@ def check_schema(m: MonthMetrics, baseline: Baseline, dataset: Dataset) -> Check
     expected = (
         f"{len(baseline.previous_schema)} columns as in {baseline.previous_period}"
         if baseline.previous_schema is not None
-        else f"{len(dataset.columns)} standard columns"
+        else f"{len(dataset.raw_columns())} standard columns"
     )
     if not changes:
         return CheckResult(

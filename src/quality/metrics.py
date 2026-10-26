@@ -32,7 +32,7 @@ if __package__ in (None, ""):
 from common import db  # noqa: E402
 from common.config import ConfigError, Dataset, load_datasets_config, load_quality_rules  # noqa: E402
 from common.runs import utc_now  # noqa: E402
-from ingestion.bronze_loader import LINEAGE_COLUMNS, current_versions, read_bronze_sql  # noqa: E402
+from ingestion.bronze_loader import PASS_THROUGH, current_versions, read_bronze_sql  # noqa: E402
 from quality.standardize import standardize_file  # noqa: E402
 
 
@@ -75,7 +75,7 @@ def compute(
     bins: dict[str, list[float]],
 ) -> MonthMetrics:
     raw = con.execute(f"DESCRIBE SELECT * FROM {read_bronze_sql(bronze_path)}").fetchall()
-    raw_schema = [(n, t) for n, t, *_ in raw if n not in LINEAGE_COLUMNS]
+    raw_schema = [(n, t) for n, t, *_ in raw if n not in PASS_THROUGH]
     sql, _ = standardize_file(con, bronze_path, dataset)
     source = f"({sql})"
 

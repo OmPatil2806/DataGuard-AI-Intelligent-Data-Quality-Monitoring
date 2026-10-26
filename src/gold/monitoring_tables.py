@@ -287,7 +287,8 @@ def schema_history_frame(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     for name, schemas in by_dataset.items():
         dataset = config.dataset(name)
         settings = baselines.settings_for(name)
-        standard = {c.lower(): c for c, _ in dataset.columns}
+        # source names of the standard columns (as in the schema check)
+        standard = {s.lower(): s for _, names in dataset.raw_columns() for s in names}
         for period, current in schemas.items():
             earlier = baselines.earlier_months(list(schemas), period, settings)
             previous_period = earlier[-1] if earlier else None

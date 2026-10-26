@@ -43,9 +43,9 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from common.config import ConfigError, Dataset, load_datasets_config  # noqa: E402
+from ingestion.bronze_loader import ORIGIN_COLUMNS  # noqa: E402
 
 log = logging.getLogger("prepare_source")
-ORIGIN_COLUMNS = ("origin_file", "origin_line")
 PERIOD = "__period"
 STAGED = "staged"
 

@@ -1,16 +1,19 @@
 """Standardize a raw file to the dataset's standard schema (configs/datasets.yml: columns).
 
-Source columns are matched to standard columns by name, ignoring case, then renamed and
-cast. Values are never altered beyond the type change, and every change is reported:
+Source columns are matched to standard columns by name, ignoring case (or by the column's
+`source` names, e.g. "Vehicle Speed[km/h]" -> speed_kmh), then renamed and cast. Computed
+columns (`sql`) are added from the standardized columns, so rules can use them. Values are
+never altered beyond the type change, and every change is reported:
 
     renamed      Airport_fee -> airport_fee
+    computed     a column computed by its sql (e.g. a row time from a day number)
     cast         passenger_count DOUBLE -> INTEGER
     added        a standard column the source does not have (filled with NULL)
     dropped      a source column that is not in the standard schema
     lossy        values that would not survive a cast (e.g. 1.5 -> INTEGER); they become NULL
 
-Bronze lineage columns (bronze_row_id, source_file, ingestion_timestamp, pipeline_run_id)
-pass through unchanged after the standard columns.
+Bronze lineage columns (bronze_row_id, source_file, ingestion_timestamp, pipeline_run_id, and
+origin_file and origin_line of a prepared source) pass through unchanged after them.
 
     python src/quality/standardize.py             # report for every month in Bronze
 """
@@ -31,7 +34,7 @@ if __package__ in (None, ""):
 
 from common import db  # noqa: E402
 from common.config import ConfigError, Dataset, load_datasets_config  # noqa: E402
-from ingestion.bronze_loader import LINEAGE_COLUMNS, current_files, read_bronze_sql  # noqa: E402
+from ingestion.bronze_loader import PASS_THROUGH, current_files, read_bronze_sql  # noqa: E402
 
 
 class StandardizeError(ValueError):
@@ -43,12 +46,15 @@ class Report:
     renamed: list[tuple[str, str]] = field(default_factory=list)
     cast: list[tuple[str, str, str]] = field(default_factory=list)  # column, from, to
     added: list[str] = field(default_factory=list)
+    computed: list[str] = field(default_factory=list)
     dropped: list[str] = field(default_factory=list)
     lossy: dict[str, int] = field(default_factory=dict)  # column -> values lost in the cast
 
     @property
     def changed(self) -> bool:
-        return bool(self.renamed or self.cast or self.added or self.dropped or self.lossy)
+        return bool(
+            self.renamed or self.cast or self.added or self.computed or self.dropped or self.lossy
+        )
 
     def summary(self) -> str:
         parts = []
@@ -58,6 +64,8 @@ class Report:
             parts.append("cast " + ", ".join(f"{c} {a}->{b}" for c, a, b in self.cast))
         if self.added:
             parts.append("added " + ", ".join(self.added))
+        if self.computed:
+            parts.append("computed " + ", ".join(self.computed))
         if self.dropped:
             parts.append("dropped " + ", ".join(self.dropped))
         if self.lossy:
@@ -70,7 +78,10 @@ def _quote(name: str) -> str:
 
 
 def plan(source: dict[str, str], dataset: Dataset) -> tuple[list[str], Report]:
-    """Build the SELECT list that standardizes a source with the given columns and types."""
+    """Build the SELECT list that standardizes a source with the given columns and types.
+
+    Without computed columns this selects from the source directly; with them, the list is
+    meant for select_sql(), which computes them from the standardized columns."""
     if not dataset.columns:
         raise StandardizeError(f"dataset '{dataset.name}' has no standard schema (columns:)")
 
@@ -86,8 +97,15 @@ def plan(source: dict[str, str], dataset: Dataset) -> tuple[list[str], Report]:
     report = Report()
     select: list[str] = []
     used: set[str] = set()
+    computed = dict(dataset.computed)
     for target, target_type in dataset.columns:
-        found = by_lower.get(target.lower())
+        if target in computed:
+            report.computed.append(target)
+            continue
+        found = next(
+            (by_lower[n.lower()] for n in dataset.source_names(target) if n.lower() in by_lower),
+            None,
+        )
         if found is None:
             report.added.append(target)
             select.append(f"CAST(NULL AS {target_type}) AS {_quote(target)}")
@@ -101,10 +119,27 @@ def plan(source: dict[str, str], dataset: Dataset) -> tuple[list[str], Report]:
         else:
             select.append(f"{_quote(found)} AS {_quote(target)}")
 
-    lineage = [c for c in LINEAGE_COLUMNS if c in source]
+    lineage = [c for c in PASS_THROUGH if c in source]
     select += [_quote(c) for c in lineage]
     report.dropped = [c for c in source if c not in used and c not in lineage]
     return select, report
+
+
+def select_sql(select: list[str], source_sql: str, dataset: Dataset, source: list[str]) -> str:
+    """The standardized SELECT; computed columns are added from the standardized columns, and
+    every column comes in the order of the standard schema, then the lineage."""
+    inner = f"SELECT {', '.join(select)} FROM {source_sql}"
+    if not dataset.computed:
+        return inner
+    computed = dict(dataset.computed)
+    outer = [
+        f"CAST(({computed[name]}) AS {dtype}) AS {_quote(name)}"
+        if name in computed
+        else _quote(name)
+        for name, dtype in dataset.columns
+    ]
+    outer += [_quote(c) for c in PASS_THROUGH if c in source]
+    return f"SELECT {', '.join(outer)} FROM ({inner}) AS standardized"
 
 
 def _lossy_counts(
@@ -113,6 +148,8 @@ def _lossy_counts(
     """Values that are not NULL before a cast but would not round-trip through it."""
     checks = {}
     lookup = {name.lower(): name for name in source}
+    for found, target in report.renamed:
+        lookup.setdefault(target.lower(), found)  # a renamed column is cast by its source name
     for column, _, target_type in report.cast:
         original = _quote(lookup[column.lower()])
         converted = f"TRY_CAST({original} AS {target_type})"
@@ -134,7 +171,7 @@ def standardize(
     source = {name: dtype for name, dtype, *_ in described}
     select, report = plan(source, dataset)
     report.lossy = _lossy_counts(con, source_sql, source, report)
-    return f"SELECT {', '.join(select)} FROM {source_sql}", report
+    return select_sql(select, source_sql, dataset, list(source)), report
 
 
 def standardize_file(
