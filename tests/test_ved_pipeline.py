@@ -55,7 +55,7 @@ def query(env, sql):
 
 def test_every_stage_runs(env):
     assert env["ingested"] == 0
-    assert set(env["stages"].values()) == {0} and len(env["stages"]) == 8
+    assert set(env["stages"].values()) == {0} and len(env["stages"]) == 9
 
 
 def test_rules_from_the_profile(env):

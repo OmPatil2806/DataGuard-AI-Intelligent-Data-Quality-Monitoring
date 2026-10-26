@@ -175,6 +175,7 @@ def _rebuild(
         "--dataset", dataset, "--lookups", str(lookups),
         "--silver", str(folder / "silver"), "--quarantine", str(folder / "quarantine"),
         "--reports", str(folder / "reports"), "--database", str(folder / DATABASE),
+        "--no-alerts",  # experiments never notify anyone
     ]  # fmt: skip
     if months:
         argv += ["--months", months]

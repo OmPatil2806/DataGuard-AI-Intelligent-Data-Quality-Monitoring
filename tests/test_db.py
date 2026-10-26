@@ -48,6 +48,7 @@ def test_connect_creates_parent_folder(db_path):
 
 def test_init_creates_control_tables(con):
     assert db.list_tables(con) == [
+        "alert_log",
         "baselines",
         "dataset_check_results",
         "dataset_metrics",
@@ -150,4 +151,4 @@ def test_upgrade_from_schema_version_1_keeps_data(db_path):
         assert "dataset_metrics" in db.list_tables(con)
         columns = [r[0] for r in con.execute("DESCRIBE file_manifest").fetchall()]
         assert "simulated_delivered_at" in columns
-        assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 14
+        assert con.execute("SELECT max(version) FROM schema_version").fetchone()[0] == 15

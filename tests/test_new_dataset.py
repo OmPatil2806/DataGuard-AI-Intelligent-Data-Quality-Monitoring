@@ -176,7 +176,7 @@ def query(env, sql):
 def test_every_stage_runs(env):
     assert env["ingested"] == 0
     assert env["stages"] == {s: 0 for s in ("silver", "checks", "rules", "ml", "incidents",
-                                             "score", "investigate", "gold")}  # fmt: skip
+                                             "score", "investigate", "alert", "gold")}  # fmt: skip
 
 
 def test_standard_names_computed_columns_and_lookup(env):

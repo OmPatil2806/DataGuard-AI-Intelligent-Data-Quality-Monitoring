@@ -94,6 +94,7 @@ def test_stages_run_in_order(monkeypatch, tmp_path, capsys):
         (rebuild.incidents_cli, "incidents"),
         (rebuild.score, "score"),
         (rebuild.investigate, "investigate"),
+        (rebuild.notifier, "alert"),
         (rebuild.monitoring_tables, "gold"),
     ]:
         monkeypatch.setattr(module, "main", lambda argv, name=name: calls.append((name, argv)) or 0)
@@ -101,7 +102,7 @@ def test_stages_run_in_order(monkeypatch, tmp_path, capsys):
         rebuild.main(["--database", str(tmp_path / "d.duckdb"), "--lookups", "L", "--force"]) == 0
     )
     assert [c[0] for c in calls] == [
-        "silver", "checks", "rules", "ml", "incidents", "score", "investigate", "gold",
+        "silver", "checks", "rules", "ml", "incidents", "score", "investigate", "alert", "gold",
     ]  # fmt: skip
     argv = dict(calls)
     assert "--force" in argv["silver"] and "--force" not in argv["checks"]
@@ -116,10 +117,10 @@ def test_stages_run_in_order(monkeypatch, tmp_path, capsys):
     argv = dict(calls)
     for stage in ("silver", "checks", "rules", "ml"):
         assert argv[stage][argv[stage].index("--months") + 1] == "2023-06", stage
-    for stage in ("incidents", "score", "investigate", "gold"):
+    for stage in ("incidents", "score", "investigate", "alert", "gold"):
         assert "--months" not in argv[stage], stage
     out = capsys.readouterr().out
-    assert "rebuild summary:" in out and out.count(" ok") >= 8
+    assert "rebuild summary:" in out and out.count(" ok") >= 9
 
 
 def test_failed_stage_continues_but_config_error_stops(monkeypatch, capsys):

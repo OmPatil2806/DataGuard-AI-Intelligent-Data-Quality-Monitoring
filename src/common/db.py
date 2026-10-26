@@ -19,13 +19,15 @@ if __package__ in (None, ""):
 
 from common.config import load_datasets_config  # noqa: E402
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 RUN_STATUSES = ("RUNNING", "SUCCESS", "WARNING", "FAILED")
 FILE_STATUSES = ("REGISTERED", "LOADED", "SKIPPED", "FAILED")
 SEVERITY_LEVELS = ("critical", "high", "medium", "low")
 INCIDENT_SOURCES = ("row_rule", "dataset_check")
 INCIDENT_STATUSES = ("OPEN", "INVESTIGATING", "RESOLVED")
+# sent: delivered; failed: retried by the next run; skipped: recorded without sending (--silent)
+ALERT_STATUSES = ("sent", "failed", "skipped")
 ACTION_STATUSES = ("pending_approval", "approved", "rejected", "done")
 INCIDENT_EVENTS = (
     "opened",  # a new incident
@@ -366,6 +368,22 @@ SCHEMA = [
         decided_at   TIMESTAMP,
         decided_by   VARCHAR,
         PRIMARY KEY (incident_id, action_id)
+    )
+    """,
+    # Schema version 15: alerts sent for incidents (Phase 10). One row per incident, severity
+    # reached and channel: an incident is alerted once per severity, again only if it escalates.
+    f"""
+    CREATE TABLE IF NOT EXISTS alert_log (
+        incident_id  VARCHAR NOT NULL,
+        severity     VARCHAR NOT NULL,
+        channel      VARCHAR NOT NULL,              -- outbox | slack
+        dataset      VARCHAR NOT NULL,
+        status       VARCHAR NOT NULL CHECK (status IN {_in(ALERT_STATUSES)}),
+        run_id       VARCHAR NOT NULL,
+        message      VARCHAR NOT NULL,              -- the text that was sent
+        error        VARCHAR,
+        created_at   TIMESTAMP NOT NULL,
+        PRIMARY KEY (incident_id, severity, channel)
     )
     """,
 ]

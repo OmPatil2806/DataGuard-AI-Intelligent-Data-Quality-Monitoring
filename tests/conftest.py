@@ -37,6 +37,23 @@ def _isolated_reports_dir(tmp_path_factory):
         os.environ["DATAGUARD_REPORTS_DIR"] = previous
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _isolated_alerts(tmp_path_factory):
+    """Alerts of the tests go to their own outbox, and never to a real Slack webhook."""
+    import os
+
+    folder = tmp_path_factory.mktemp("alerts")
+    previous = {k: os.environ.get(k) for k in ("DATAGUARD_ALERTS_DIR", "DATAGUARD_SLACK_WEBHOOK")}
+    os.environ["DATAGUARD_ALERTS_DIR"] = str(folder)
+    os.environ.pop("DATAGUARD_SLACK_WEBHOOK", None)
+    yield folder
+    for key, value in previous.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+
+
 @pytest.fixture
 def fixture_trips() -> pd.DataFrame:
     return pd.read_parquet(FIXTURES / "yellow_tripdata_fixture.parquet")

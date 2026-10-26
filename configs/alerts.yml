@@ -1,0 +1,17 @@
+# Alerts for incidents (Phase 10). src/alerts/notifier.py, the `alert` stage of rebuild.py.
+#
+# An active incident whose severity is listed here is alerted once per channel; it is alerted
+# again only when it escalates to another listed severity. "Seen again" never alerts.
+#
+# Channels:
+#   outbox  a JSON line per alert in <data_dir>/alerts/outbox.jsonl (DATAGUARD_ALERTS_DIR to
+#           change the folder); always on, the record the dashboard shows
+#   slack   a message to the Slack incoming webhook in the environment variable
+#           DATAGUARD_SLACK_WEBHOOK. The URL is a secret: set it in your shell or .env (ignored
+#           by Git), never in this file. Without it, Slack is skipped.
+
+severities: [critical, high]
+channels: [outbox, slack]
+
+# Shown in every message, so the reader can open the incident (Phase 10.2 onwards).
+dashboard_url: http://localhost:8501

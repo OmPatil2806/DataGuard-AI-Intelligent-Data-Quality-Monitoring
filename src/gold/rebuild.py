@@ -16,7 +16,9 @@ Each stage is the same command a user would run by hand, in this order:
     6 score      src/quality/score.py
     7 investigate src/investigation/investigate.py   evidence, explanation, actions, report
                                                      for every incident
-    8 gold       src/gold/monitoring_tables.py       every Gold table, one transaction
+    8 alert      src/alerts/notifier.py              new critical/high incidents to the outbox
+                                                     and Slack (--no-alerts to skip)
+    9 gold       src/gold/monitoring_tables.py       every Gold table, one transaction
 
 --months limits the stages that work month by month (silver, checks, rules, ml); the checks still
 compare with every earlier month in the database, and the incidents, score and Gold stages
@@ -42,6 +44,7 @@ if __package__ in (None, ""):
     # Allow running this file directly: make src/ importable.
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from alerts import notifier  # noqa: E402
 from gold import monitoring_tables  # noqa: E402
 from incidents import incidents_cli  # noqa: E402
 from investigation import investigate  # noqa: E402
@@ -78,6 +81,7 @@ def stages(args: argparse.Namespace) -> list[tuple[str, Callable[[list[str]], in
         ("incidents", incidents_cli.main, [*database, *dataset, "update"]),
         ("score", score.main, [*dataset, *database]),
         ("investigate", investigate.main, [*dataset, *reports, *database]),
+        *([] if args.no_alerts else [("alert", notifier.main, [*dataset, *database])]),
         ("gold", monitoring_tables.main, database),
     ]
 
@@ -124,6 +128,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--reports", type=Path, help="investigation reports folder (default: paths.reports)"
+    )
+    parser.add_argument(
+        "--no-alerts", action="store_true", help="skip the alert stage (e.g. for experiments)"
     )
     parser.add_argument("--database", type=Path, help="DuckDB file (default: paths.duckdb)")
     return parser.parse_args(argv)

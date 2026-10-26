@@ -15,7 +15,8 @@ cause first in 18 of 18 detected: [docs/ved.md](docs/ved.md)). Phase 8, the inve
 engine, is in [docs/investigation.md](docs/investigation.md). Pending a run on the full taxi
 data: the total-amount rule (open item O1), the measured rule results, the drift and score
 calibrations (notebooks 03 and 04), the detection evaluation (notebook 05), the anomaly model
-(notebook 06) and the investigation (notebook 07). Next: Phase 10, the dashboard and alerts.
+(notebook 06) and the investigation (notebook 07). In progress: Phase 10, the
+dashboard and alerts (10.1 alerts done).
 
 ## Setup
 
@@ -294,6 +295,28 @@ randomly spread fault gets a where/when, and the vendor fault at 20% is placed i
 `notebooks/07_investigation.ipynb` shows every incident's likely cause, one incident in depth
 with its report, where and when, the actions, and the accuracy on the experiments. Details:
 [docs/investigation.md](docs/investigation.md).
+
+## Alerts
+
+```bash
+python src/alerts/notifier.py                 # alert new critical/high incidents (rebuild does it too)
+python src/alerts/notifier.py --silent        # record current incidents as alerted, send nothing
+```
+
+After every rebuild (the `alert` stage, after the investigation), each open incident of a
+severity listed in `configs/alerts.yml` (critical and high) is alerted once, with its likely
+cause, where/when, the actions waiting and a link to the dashboard; again only if it escalates,
+never when it is merely seen again. Alerts always go to `data/alerts/outbox.jsonl`; to Slack as
+well once an incoming webhook is set:
+
+```bash
+export DATAGUARD_SLACK_WEBHOOK=https://hooks.slack.com/services/...   # PowerShell: $env:DATAGUARD_SLACK_WEBHOOK="..."
+```
+
+The URL is a secret: keep it in your shell or `.env` (ignored by Git), never in a config file.
+Every alert is recorded in `alert_log`; a send that failed is retried by the next run. The
+fault experiments never alert (`rebuild.py --no-alerts`). On the real VED data, 2 of its 9
+incidents were alerted (the open high ones), and a second run sent nothing.
 
 ## Second dataset: Vehicle Energy Dataset (Phase 9)
 
