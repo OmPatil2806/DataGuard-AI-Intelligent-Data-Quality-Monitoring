@@ -127,7 +127,8 @@ Unpack with `py7zr`, ingest into Bronze, `ved_signals` rules, lineage entries.
 
 ### P10 — Dashboard and alerts
 Streamlit, five pages: Overview, Dataset Health, Incidents (approve/dismiss), Quarantine Explorer
-(including ML flags), Lineage. DuckDB opened read-only. `notifier.py` writes alerts to a local outbox.
+(including ML flags), Lineage. DuckDB opened read-only, except the decisions taken on the
+Incidents page. `notifier.py` writes alerts to a local outbox.
 **Done when:** a broken file triggers an alert and appears on the dashboard.
 
 ### P11 — Orchestration, tests and demo

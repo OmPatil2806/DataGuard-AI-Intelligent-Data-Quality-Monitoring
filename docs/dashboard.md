@@ -42,8 +42,8 @@ PowerShell: `$env:DATAGUARD_DATABASE="other.duckdb"; streamlit run src/dashboard
 | Overview | 10.2 | The month at a glance, its trend, open incidents, alerts, runs |
 | Dataset Health | 10.3 | Every month of a dataset; the chosen month's checks, columns, score by category; any measure over time; distributions; schema changes |
 | Incidents | 10.4 | Every incident with filters; one in depth: finding, likely causes with evidence, where/when, suggested actions to approve or reject, status changes, notes, history |
-| Quarantine Explorer | 10.5 | coming |
-| Lineage | 10.5 | coming |
+| Quarantine Explorer | 10.5 | The month's quarantined, warned and model-flagged rows: rows per rule, and the rows themselves with why they failed |
+| Lineage | 10.5 | Where the month's rows went, the files and runs, every month's counts and their check, and one row traced from its source file |
 
 ### Overview
 
@@ -86,6 +86,26 @@ come from the same tables. Gold catches up at the next rebuild.
 | Status and notes | **Start investigating** (open), **Back to open** (investigating), **Resolve** (either; a resolved incident stays resolved and a recurrence opens a new one), **Add note**; the note text goes with a status change too. Every change is signed "(by name)" in the history |
 | History | Every event of the incident, newest first: opened, seen again, clean, investigating, notes, resolved |
 
+### Quarantine Explorer
+
+Reads the month's current Silver and Quarantine files (their paths from `gold_lineage`) and
+`ml_anomalies`.
+
+| Part | What |
+|---|---|
+| Headline numbers | Rows quarantined, rows warned (kept in Silver), rows flagged by the anomaly model |
+| Rows failing each rule | Per rule, rows in Quarantine and rows warned in Silver. A row can fail several rules |
+| The rows | Quarantined, warned or flagged rows, optionally only those failing one rule: up to 200, with why they failed (the rules' reasons, or the model's score and reasons, most unusual first) and every column; the bookkeeping columns are left out. **Download** saves them as CSV |
+
+### Lineage
+
+| Part | What | From |
+|---|---|---|
+| Where the rows went | The month's rows from the source file to Bronze, then to Silver (passed or warned) and Quarantine | `gold_lineage`, the Silver file |
+| Files and runs | Source URL, file, SHA-256, size, versions registered; the Bronze, Silver and Quarantine files; the runs that wrote and checked them | `gold_lineage` |
+| Every month | The counts registered, in Bronze, Silver and Quarantine, and whether they agree (`ok`, `not_processed`, `missing_file`, `mismatch`) | `gold_lineage` |
+| Trace one row | A row by its `bronze_row_id` (its position in the source file): where it ended up and why, every step with its file and run, and its values as delivered. The same trace as `python src/gold/lineage.py --period <month> --row <id>` | the control tables and the files |
+
 Health and severity are always shown as a word (with an icon in tables), never by color
 alone. Status colors (healthy, warning, critical) are used only for status, never for a series.
 
@@ -97,5 +117,8 @@ itself with Streamlit's `AppTest` (numbers, charts, tables, the month picker), t
 unchanged after the page was shown, and the messages when there is no database or no Gold.
 For Incidents (on a copy of the database): the list and detail queries, decisions with the
 name, status changes and notes, refused changes (a resolved incident, an empty note, no name),
-a busy database, and the page's buttons, filters and search. For Dataset Health: the checks against the month's check run, the trends, the distribution
+a busy database, and the page's buttons, filters and search. For Quarantine Explorer and
+Lineage: the counts per view and rule, the rows with a rule filter and a limit, flagged rows
+most unusual first, a month without files, the trace of a quarantined row and of a row that
+does not exist, and both pages with their pickers. For Dataset Health: the checks against the month's check run, the trends, the distribution
 against the month before and the bin labels, and the page with its toggle and pickers.

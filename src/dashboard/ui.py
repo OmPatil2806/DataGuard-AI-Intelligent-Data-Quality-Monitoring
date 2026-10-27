@@ -109,3 +109,12 @@ def status_label(value: str | None) -> str:
 
 def format_time(value) -> str:
     return "" if value is None or pd.isna(value) else pd.Timestamp(value).strftime("%Y-%m-%d %H:%M")
+
+
+def format_value(value) -> str:
+    """A delivered value for display: empty as NULL, floats without binary noise."""
+    if value is None or (not isinstance(value, str) and pd.isna(value)):
+        return "NULL"
+    if isinstance(value, float):
+        return repr(round(value, 6))
+    return str(value)

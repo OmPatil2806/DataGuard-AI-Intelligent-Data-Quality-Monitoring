@@ -9,7 +9,8 @@ the decisions people take on the Incidents page, are in dashboard/actions.py.
 The dashboard reads Gold, plus the control tables Gold does not copy: pipeline_runs (when the
 pipeline last ran), the incident tables (so a decision on the Incidents page shows at once),
 alert_log (what was alerted), and for one month the checks of its latest run
-(dataset_check_results) and its score by category (quality_score_parts).
+(dataset_check_results) and its score by category (quality_score_parts). The Quarantine
+Explorer and the row trace read the month's Silver and Quarantine files themselves.
 """
 
 from __future__ import annotations
@@ -26,6 +27,8 @@ import pandas as pd
 from common import db
 from common.config import SEVERITIES, load_severity_weights
 from common.db import INCIDENT_STATUSES
+from gold import lineage as lineage_module
+from ingestion.bronze_loader import read_bronze_sql
 from quality.metrics import drift_bins
 
 DATABASE_ENV = "DATAGUARD_DATABASE"  # another DuckDB file (as for the notebooks)
@@ -37,6 +40,7 @@ GOLD_TABLES = (
     "gold_trends",
     "gold_column_profile",
     "gold_schema_history",
+    "gold_lineage",
 )
 HEALTH = ("healthy", "warning", "critical", "not_scored")
 
@@ -415,3 +419,148 @@ def schema_changes(database: Path, dataset: str) -> pd.DataFrame:
         """,
         [dataset],
     )
+
+
+# --- Quarantine Explorer and Lineage (Step 10.5) ----------------------------------------------
+
+VIEWS = {  # which problem rows: what the page calls them
+    "quarantine": "Quarantined rows (kept out of Silver)",
+    "warned": "Warned rows (kept in Silver with a warning)",
+    "ml": "Rows flagged by the anomaly model (in Silver)",
+}
+# Bookkeeping columns of the Silver and Quarantine files, left out of the sample rows.
+HIDDEN = ("source_file", "ingestion_timestamp", "pipeline_run_id", "silver_run_id", "period",
+          "version", "quarantine_rules")  # fmt: skip
+
+
+def _file(path: str | None) -> str | None:
+    """SQL reading one Silver or Quarantine file, or None when there is none on disk."""
+    absolute = lineage_module._absolute(path)
+    return read_bronze_sql(absolute) if absolute is not None and absolute.exists() else None
+
+
+def month_files(database: Path, dataset: str, period: str) -> dict[str, str | None]:
+    """The SQL sources of the month's current Silver and Quarantine files (gold_lineage)."""
+    found = query(
+        database,
+        "SELECT silver_path, quarantine_path FROM gold_lineage WHERE dataset = ? AND period = ?",
+        [dataset, period],
+    )
+    if found.empty:
+        return {"silver": None, "quarantine": None}
+    row = found.iloc[0]
+    return {"silver": _file(row["silver_path"]), "quarantine": _file(row["quarantine_path"])}
+
+
+def _count(database: Path, sql: str, params: list[Any] | None = None) -> int:
+    return int(query(database, f"SELECT count(*) AS n {sql}", params)["n"][0])
+
+
+# The anomaly model's flags of the month's current file version.
+ML_FLAGS = (
+    "ml_anomalies a JOIN gold_lineage l USING (dataset, period, sha256) "
+    "WHERE a.dataset = ? AND a.period = ?"
+)
+
+
+def problem_counts(database: Path, dataset: str, period: str) -> dict[str, int | None]:
+    """Rows of the month per view; None when the file is not there (not processed)."""
+    files = month_files(database, dataset, period)
+    quarantine, silver = files["quarantine"], files["silver"]
+    return {
+        "quarantine": _count(database, f"FROM {quarantine}") if quarantine else None,
+        "warned": _count(database, f"FROM {silver} WHERE len(failed_rules) > 0")
+        if silver
+        else None,
+        "ml": _count(database, f"FROM {ML_FLAGS}", [dataset, period]),
+    }
+
+
+def rule_counts(database: Path, dataset: str, period: str) -> pd.DataFrame:
+    """Rows failing each rule in the month: in Quarantine, and warned in Silver.
+
+    A row can fail several rules, so the counts can add up to more than the rows."""
+    files = month_files(database, dataset, period)
+    parts = [
+        f"SELECT unnest(failed_rules) AS rule_id, '{layer}' AS layer FROM {source}"
+        for layer, source in (("quarantine", files["quarantine"]), ("warned", files["silver"]))
+        if source
+    ]
+    if not parts:
+        return pd.DataFrame(columns=["rule_id", "quarantine", "warned"])
+    return query(
+        database,
+        f"""
+        SELECT rule_id, count(*) FILTER (layer = 'quarantine') AS quarantine,
+               count(*) FILTER (layer = 'warned') AS warned
+        FROM ({" UNION ALL ".join(parts)}) GROUP BY rule_id
+        ORDER BY quarantine + warned DESC, rule_id
+        """,
+    )
+
+
+def problem_rows(
+    database: Path, dataset: str, period: str, view: str, rule: str | None = None,
+    limit: int = 200,
+) -> tuple[pd.DataFrame, int]:  # fmt: skip
+    """Up to `limit` rows of one view (optionally failing one rule), and how many there are."""
+    if view not in VIEWS:
+        raise DashboardError(f"unknown view {view}")
+    files = month_files(database, dataset, period)
+    source = files["quarantine" if view == "quarantine" else "silver"]
+    if source is None:
+        return pd.DataFrame(), 0
+    where, params = [], []
+    if view == "warned":
+        where.append("len(f.failed_rules) > 0")
+    if rule:
+        where.append("list_contains(f.failed_rules, ?)")
+        params.append(rule)
+    if view == "ml":
+        sql = (
+            f"FROM {source} f JOIN (SELECT a.bronze_row_id, a.score AS anomaly_score, "
+            f"a.reasons AS model_reasons FROM {ML_FLAGS}) m USING (bronze_row_id)"
+        )
+        params = [dataset, period, *params]
+        order = "m.anomaly_score DESC, bronze_row_id"
+    else:
+        sql, order = f"FROM {source} f", "bronze_row_id"
+    condition = f" WHERE {' AND '.join(where)}" if where else ""
+    total = _count(database, f"{sql}{condition}", params)
+    rows = query(database, f"SELECT * {sql}{condition} ORDER BY {order} LIMIT ?", [*params, limit])
+    rows = rows.drop(columns=[c for c in HIDDEN if c in rows.columns])
+    for column in ("failed_rules", "reasons"):
+        rows[column] = rows[column].map(lambda v: "; ".join(v) if v is not None else "")
+    first = [c for c in ("bronze_row_id", "anomaly_score", "model_reasons", "reasons",
+                         "failed_rules") if c in rows.columns]  # fmt: skip
+    return rows[first + [c for c in rows.columns if c not in first]], total
+
+
+def lineage(database: Path, dataset: str) -> pd.DataFrame:
+    """Every month: source file, version, Bronze/Silver/Quarantine counts and their check."""
+    return query(
+        database,
+        """
+        SELECT period, file_name, source_url, sha256, size_bytes, versions_registered,
+               manifest_rows, bronze_rows, silver_rows, quarantine_rows, logged_silver_rows,
+               logged_quarantine_rows, status, detail, bronze_path, silver_path,
+               quarantine_path, loaded_run_id, silver_run_id, rule_run_id, check_run_id, scored
+        FROM gold_lineage WHERE dataset = ? ORDER BY period
+        """,
+        [dataset],
+    )
+
+
+def trace_row(database: Path, dataset: str, period: str, row_id: int) -> dict[str, Any]:
+    """One row from its source file to Silver or Quarantine (gold/lineage.py trace)."""
+    try:
+        with db.connect(database, read_only=True) as con:
+            return lineage_module.trace(con, period, int(row_id), dataset)
+    except lineage_module.TraceError as exc:
+        raise DashboardError(str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise DashboardError(f"No database at {database}.") from exc
+    except duckdb.IOException as exc:
+        raise DashboardError(
+            "The database is busy (the pipeline is writing to it). Refresh in a moment."
+        ) from exc

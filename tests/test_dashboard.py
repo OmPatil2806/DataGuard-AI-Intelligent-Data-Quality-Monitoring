@@ -16,7 +16,7 @@ from streamlit.testing.v1 import AppTest
 
 from alerts import notifier
 from common import db
-from dashboard import actions, data
+from dashboard import actions, data, ui
 from gold import monitoring_tables
 from investigation import investigate
 
@@ -278,3 +278,103 @@ def test_the_incidents_page(copy, monkeypatch):
     assert at.dataframe[0].value["incident_id"].tolist() == ["INC-0001"]
     at.text_input(key="search").input("nothing like this").run()
     assert "No incident matches." in at.info[0].value
+
+
+# --- Quarantine Explorer and Lineage (Step 10.5) ----------------------------------------------
+
+
+def flag_rows(database, period, rows):
+    """Anomaly flags for rows of the month's current version, as ml/score.py writes them."""
+    with db.connect(database) as con:
+        (sha,) = con.execute(
+            "SELECT sha256 FROM gold_lineage WHERE period = ?", [period]
+        ).fetchone()
+        for row_id, score in rows:
+            con.execute(
+                "INSERT INTO ml_anomalies VALUES ('yellow_taxi', ?, ?, 'm1', ?, ?, ['fare'], ?)",
+                [period, sha, row_id, score, f"unusual fare {row_id}"],
+            )
+
+
+def test_quarantine_queries(database):
+    assert data.problem_counts(database, "yellow_taxi", "2023-01") == {
+        "quarantine": 11, "warned": 12, "ml": 0,
+    }  # fmt: skip
+    rules = data.rule_counts(database, "yellow_taxi", "2023-01").set_index("rule_id")
+    assert rules.loc["trip_unique", "quarantine"] == 2
+    assert rules.loc["passengers_not_zero", "warned"] == 3
+    rows, total = data.problem_rows(database, "yellow_taxi", "2023-01", "quarantine")
+    assert total == len(rows) == 11
+    assert rows.columns[:3].tolist() == ["bronze_row_id", "reasons", "failed_rules"]
+    assert not set(data.HIDDEN) & set(rows.columns)
+    rows, total = data.problem_rows(
+        database, "yellow_taxi", "2023-01", "warned", "passengers_not_zero"
+    )
+    assert total == 3 and rows["failed_rules"].str.contains("passengers_not_zero").all()
+    rows, total = data.problem_rows(database, "yellow_taxi", "2023-01", "quarantine", limit=4)
+    assert (len(rows), total) == (4, 11)
+    assert data.month_files(database, "yellow_taxi", "2030-01") == {
+        "silver": None, "quarantine": None,
+    }  # fmt: skip
+    assert data.problem_rows(database, "yellow_taxi", "2030-01", "warned")[1] == 0
+
+
+def test_rows_flagged_by_the_model(copy):
+    silver_rows = data.problem_rows(copy, "yellow_taxi", "2023-01", "warned")[0]["bronze_row_id"]
+    flag_rows(copy, "2023-01", [(int(silver_rows[0]), 0.4), (int(silver_rows[1]), 0.9)])
+    assert data.problem_counts(copy, "yellow_taxi", "2023-01")["ml"] == 2
+    rows, total = data.problem_rows(copy, "yellow_taxi", "2023-01", "ml")
+    assert total == 2 and rows["anomaly_score"].tolist() == [0.9, 0.4]  # most unusual first
+    assert rows.columns[:3].tolist() == ["bronze_row_id", "anomaly_score", "model_reasons"]
+
+
+def test_lineage_and_trace(database):
+    months = data.lineage(database, "yellow_taxi")
+    assert months["period"].tolist() == ["2023-01", "2023-02", "2023-03", "2023-04", "2023-05"]
+    assert set(months["status"]) == {"ok"}
+    quarantined = data.problem_rows(database, "yellow_taxi", "2023-01", "quarantine")[0]
+    row_id = int(quarantined["bronze_row_id"][0])
+    trace = data.trace_row(database, "yellow_taxi", "2023-01", row_id)
+    assert trace["layer"] == "Quarantine" and trace["reasons"]
+    assert trace["bronze_row"]["bronze_row_id"] == row_id
+    with pytest.raises(data.DashboardError, match="has no row 9999"):
+        data.trace_row(database, "yellow_taxi", "2023-01", 9999)
+
+
+def test_format_value():
+    assert [ui.format_value(v) for v in (19.533260000000002, float("nan"), None, 2.0, "N")] == [
+        "19.53326", "NULL", "NULL", "2.0", "N",
+    ]  # fmt: skip
+
+
+def test_the_quarantine_page(copy, monkeypatch):
+    at = app(monkeypatch, copy)
+    at.sidebar.selectbox[1].select("2023-01").run()
+    at.switch_page("views/quarantine.py").run()
+    assert not at.exception
+    assert {m.label: m.value for m in at.metric} == {
+        "Quarantined rows": "11", "Warned rows": "12", "Flagged by the model": "0",
+    }  # fmt: skip
+    assert len(at.get("plotly_chart")) == 1 and len(at.dataframe[0].value) == 11
+    at.radio(key="view").set_value("warned").run()
+    assert len(at.dataframe[0].value) == 12
+    at.selectbox(key="rule:warned").select("passengers_not_zero").run()
+    assert len(at.dataframe[0].value) == 3
+    at.radio(key="view").set_value("ml").run()
+    assert not at.dataframe and not at.exception
+
+
+def test_the_lineage_page(database, monkeypatch):
+    at = app(monkeypatch, database)
+    at.sidebar.selectbox[1].select("2023-01").run()
+    at.switch_page("views/lineage.py").run()
+    assert not at.exception
+    assert [s.value for s in at.subheader] == [
+        "Where the rows of 2023-01 went", "Every month", "Trace one row",
+    ]  # fmt: skip
+    assert len(at.dataframe[0].value) == 5
+    quarantined = data.problem_rows(database, "yellow_taxi", "2023-01", "quarantine")[0]
+    at.number_input(key="row:2023-01").set_value(int(quarantined["bronze_row_id"][0])).run()
+    assert not at.exception and at.error[0].value.startswith("In **Quarantine**")
+    steps = at.dataframe[1].value
+    assert steps["Step"].tolist()[:4] == ["Source", "File", "Bronze", "Quarantine"]

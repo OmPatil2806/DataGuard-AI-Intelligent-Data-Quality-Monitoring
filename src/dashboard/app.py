@@ -24,26 +24,18 @@ from dashboard import data, ui  # noqa: E402
 VIEWS = Path(__file__).resolve().parent / "views"
 
 
-def coming(step: str):
-    def page() -> None:
-        st.title(page.title)
-        st.info(f"This page comes in Phase {step}.", icon="🚧")
-
-    return page
-
-
 def pages() -> list:
-    def soon(title: str, step: str, icon: str, url: str):
-        page = coming(step)
-        page.title = title
-        return st.Page(page, title=title, icon=icon, url_path=url)
-
     return [
         st.Page(str(VIEWS / "overview.py"), title="Overview", icon="🏠", default=True),
         st.Page(str(VIEWS / "health.py"), title="Dataset Health", icon="📈", url_path="health"),
         st.Page(str(VIEWS / "incidents.py"), title="Incidents", icon="🚨", url_path="incidents"),
-        soon("Quarantine Explorer", "10.5", "🧪", "quarantine"),
-        soon("Lineage", "10.5", "🔗", "lineage"),
+        st.Page(
+            str(VIEWS / "quarantine.py"),
+            title="Quarantine Explorer",
+            icon="🧪",
+            url_path="quarantine",
+        ),
+        st.Page(str(VIEWS / "lineage.py"), title="Lineage", icon="🔗", url_path="lineage"),
     ]
 
 
