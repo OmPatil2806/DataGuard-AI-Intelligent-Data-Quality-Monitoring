@@ -34,7 +34,7 @@ else:
              f"Silver, passed<br>{silver - warned:,}", f"Silver, warned<br>{warned:,}",
              f"Quarantine<br>{quarantine:,}"]  # fmt: skip
     figure = go.Figure(go.Sankey(
-        arrangement="fixed",
+        arrangement="fixed", textfont={"size": 13, "shadow": "none"},
         node={"label": nodes, "pad": 24, "thickness": 16,
               "color": [ui.MUTED, ui.MUTED, ui.SERIES[0], "#1baf7a", ui.SERIES[1]],
               "hovertemplate": "%{label}<extra></extra>"},
@@ -66,7 +66,7 @@ with st.expander(f"Files and runs of {ctx.period}"):
 st.subheader("Every month")
 st.dataframe(
     months.assign(status=months["status"].map(lambda s: LINEAGE_LABELS.get(s, s)),
-                  sha256=months["sha256"].str[:12]),
+                  sha256=months["sha256"].str[:12], detail=months["detail"].fillna("")),
     hide_index=True,
     column_order=["period", "status", "file_name", "sha256", "versions_registered",
                   "manifest_rows", "bronze_rows", "silver_rows", "quarantine_rows", "detail"],

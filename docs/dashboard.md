@@ -1,7 +1,11 @@
-# Dashboard
+# Dashboard and alerts
 
-Phase 10. A Streamlit app that shows the monitoring results of every dataset: the Gold tables,
-plus the alerts and the pipeline runs.
+Phase 10. A Streamlit app that shows the monitoring results of every dataset (the Gold tables,
+the incidents, the alerts, the pipeline runs and the files themselves), and alerts for new
+critical and high incidents in a local outbox.
+
+**Done when** a broken file triggers an alert and appears on the dashboard:
+`tests/test_phase10_proof.py`, see [Proof](#proof).
 
 ```bash
 streamlit run src/dashboard/app.py                                    # http://localhost:8501
@@ -9,6 +13,8 @@ DATAGUARD_DATABASE=other.duckdb streamlit run src/dashboard/app.py    # another 
 ```
 
 PowerShell: `$env:DATAGUARD_DATABASE="other.duckdb"; streamlit run src/dashboard/app.py`.
+
+![Overview](images/dashboard_overview.png)
 
 ## How it is built
 
@@ -108,6 +114,35 @@ Reads the month's current Silver and Quarantine files (their paths from `gold_li
 
 Health and severity are always shown as a word (with an icon in tables), never by color
 alone. Status colors (healthy, warning, critical) are used only for status, never for a series.
+
+## Screenshots
+
+On the five test months of `tests/pipeline_fixture.py` (May 2023 is the broken month).
+
+| Dataset Health | Incidents |
+|---|---|
+| ![Dataset Health](images/dashboard_health.png) | ![Incidents](images/dashboard_incidents.png) |
+
+| Quarantine Explorer | Lineage |
+|---|---|
+| ![Quarantine Explorer](images/dashboard_quarantine.png) | ![Lineage](images/dashboard_lineage.png) |
+
+## Proof
+
+`tests/test_phase10_proof.py` runs the pipeline as deliveries arrive: January to April are
+ingested and rebuilt (alert stage on), then the May file arrives broken (fares empty in 68.5%
+of the trips, distances in kilometres) and is ingested and rebuilt the same way.
+
+| Step | Result |
+|---|---|
+| Rebuild after January to April | 1 alert: the March file holds another month's trips (high, still open). The February schema change was already resolved after two clean months, so it is not alerted |
+| Rebuild after the broken May | **3 new alerts**, exactly May's problems: the NULL rate of `fare_amount`, the drift of `trip_distance` ("kilometres instead of miles"), the drift of `fare_amount`; each with its likely cause and the dashboard link. Nothing earlier is alerted again |
+| `alert_log` | The 3 May alerts recorded as sent |
+| Overview | May comes first in the month picker; health **Critical**; the May incidents among the most severe open ones; the 3 alerts in the alert panel |
+| Incidents | The May incidents listed, last seen 2023-05 |
+| Dataset Health | May's failed checks: NULL rate and drift |
+
+The pages read the same database the pipeline writes, read-only.
 
 ## Tests
 

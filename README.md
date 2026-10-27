@@ -9,14 +9,15 @@ freshness, volume, drift) raise incidents, and **Gold** monitoring tables feed a
 Version 1 runs on real NYC TLC Yellow Taxi data with deliberately injected faults, so detection
 quality is measured instead of assumed.
 
-**Status:** Phase 9 complete (a second dataset, the Vehicle Energy Dataset, monitored with
-configuration only: 22 million real readings in 84 seconds, fault experiments with the right
-cause first in 18 of 18 detected: [docs/ved.md](docs/ved.md)). Phase 8, the investigation
-engine, is in [docs/investigation.md](docs/investigation.md). Pending a run on the full taxi
-data: the total-amount rule (open item O1), the measured rule results, the drift and score
-calibrations (notebooks 03 and 04), the detection evaluation (notebook 05), the anomaly model
-(notebook 06) and the investigation (notebook 07). In progress: Phase 10, the
-dashboard and alerts (10.1 alerts and 10.2 to 10.5, the dashboard's five pages, done).
+**Status:** Phase 10 complete: a five-page dashboard and local alerts; a broken file is
+alerted once, with its likely cause, and shows on every page
+([docs/dashboard.md](docs/dashboard.md)). Phase 9, a second dataset (the Vehicle Energy
+Dataset) monitored with configuration only, is in [docs/ved.md](docs/ved.md); Phase 8, the
+investigation engine, in [docs/investigation.md](docs/investigation.md). Pending a run on the
+full taxi data: the total-amount rule (open item O1), the measured rule results, the drift and
+score calibrations (notebooks 03 and 04), the detection evaluation (notebook 05), the anomaly
+model (notebook 06) and the investigation (notebook 07). Next: Phase 11, orchestration and the
+demo.
 
 ## Setup
 
@@ -316,6 +317,8 @@ incidents were alerted (the open high ones), and a second run sent nothing.
 ```bash
 streamlit run src/dashboard/app.py          # opens http://localhost:8501
 ```
+
+![Dashboard overview](docs/images/dashboard_overview.png)
 
 Pick a dataset and a month in the sidebar. The **Overview** shows the month's quality score
 (with its change), health, open incidents by severity, rows checked and quarantined; the score
